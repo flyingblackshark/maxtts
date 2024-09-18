@@ -482,11 +482,13 @@ def init_initial_state(model, tx, config, is_training, key):
 
   Args: model, tx, config, is_training, key
   """
-  input_shape = (config.micro_batch_size_to_train_on, config.max_target_length)
+  codebook_dim = 18
+  input_shape_sentence = (config.micro_batch_size_to_train_on, config.max_target_length , codebook_dim)
+  input_shape_length = (config.micro_batch_size_to_train_on, config.max_target_length)
   model_vars = model.init(
       {"params": key, "dropout": key, "aqt": key},
-      jnp.ones(input_shape, dtype=jnp.int32),
-      jnp.ones(input_shape, dtype=jnp.int32),
+      jnp.ones(input_shape_sentence, dtype=jnp.int32),
+      jnp.ones(input_shape_length, dtype=jnp.int32),
   )
   if is_training:
     return init_training_state(model.apply, model_vars, tx)

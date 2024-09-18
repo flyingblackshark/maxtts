@@ -51,15 +51,16 @@ class SyntheticDataIterator:
   @staticmethod
   def raw_generate_synthetic_data(config):
     """Generates a single batch of synthetic data"""
+    codebook_dim = 18
     output = {}
-    output["inputs"] = jax.numpy.zeros((config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32)
+    output["inputs"] = jax.numpy.zeros((config.global_batch_size_to_load, config.max_target_length,codebook_dim+1), dtype=jax.numpy.int32)
     output["inputs_position"] = jax.numpy.zeros(
         (config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32
     )
     output["inputs_segmentation"] = jax.numpy.ones(
         (config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32
     )
-    output["targets"] = jax.numpy.zeros((config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32)
+    output["targets"] = jax.numpy.zeros((config.global_batch_size_to_load, config.max_target_length,codebook_dim+1), dtype=jax.numpy.int32)
     output["targets_position"] = jax.numpy.zeros(
         (config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32
     )

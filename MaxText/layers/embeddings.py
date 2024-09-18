@@ -53,8 +53,14 @@ class Embed(nn.Module):
   embedding_init: Initializer = default_embed_init
 
   def setup(self):
-    self.embedding = self.param(
-        "embedding",
+    self.vocab_embedding = self.param(
+        "vocab_embedding",
+        with_logical_partitioning(self.embedding_init, ("vocab", "embed")),
+        (self.num_embeddings, self.features),
+        self.config.weight_dtype,
+    )
+    self.codebook_embedding = self.param(
+        "codebook_embedding",
         with_logical_partitioning(self.embedding_init, ("vocab", "embed")),
         (self.num_embeddings, self.features),
         self.config.weight_dtype,
@@ -81,7 +87,16 @@ class Embed(nn.Module):
       one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
       output = jnp.dot(one_hot, jnp.asarray(self.embedding, self.dtype))
     else:
-      output = jnp.asarray(self.embedding, self.dtype)[inputs]
+      semantic_token_id = 0
+      output_vocab = [jnp.asarray(self.vocab_embedding, self.dtype)[inputs[:,:, 0]]]
+      codebook_size = 18
+      for i in range(codebook_size):
+        output_codebook = jnp.asarray(self.codebook_embedding, self.dtype)[inputs[:,: ,i + 1] + i * codebook_size]
+        #output_codebook = output_codebook.at[inputs.transpose(0,2,1)[:, 0] != semantic_token_id].set(0)
+        output_vocab.append(output_codebook)
+      output = jnp.stack(output_vocab,axis=3)
+      output = jnp.sum(output,axis=3)
+      
     output = nn.with_logical_constraint(output, ("activation_embed_and_logits_batch", "activation_length", "activation_embed"))
     return output
 

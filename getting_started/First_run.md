@@ -23,8 +23,8 @@ pre-commit install
 4. After installation completes, run training with the command on synthetic data:
 ```
 python3 MaxText/train.py MaxText/configs/base.yml \
-  run_name=$YOUR_JOB_NAME \
-  base_output_directory=gs://<my-bucket> \
+  run_name=test2 \
+  base_output_directory=gs://fbs-us2/maxtext_output \
   dataset_type=synthetic \
   steps=10
 ```

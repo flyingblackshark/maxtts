@@ -258,9 +258,9 @@ class Decoder(nn.Module):
   ):
     cfg = self.config
     mesh = self.mesh
-    assert decoder_input_tokens.ndim == 2  # [batch, len]
+    assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
 
-    # [batch, length] -> [batch, length, emb_dim]
+    # [batch, length , codebook_dim] -> [batch, length, codebook_dim , emb_dim]
     y = self.shared_embedding(decoder_input_tokens.astype("int32"))
     y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
     y = y.astype(cfg.dtype)
@@ -370,7 +370,7 @@ class Decoder(nn.Module):
               deterministic,
               model_mode,
           )
-
+    codebook_y = y 
     y = self.get_norm_layer()(
         dtype=cfg.dtype,
         weight_dtype=cfg.weight_dtype,
@@ -403,7 +403,29 @@ class Decoder(nn.Module):
       )  # We do not quantize the logits matmul.
     logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
     logits = logits.astype(jnp.float32)
-    return logits
+
+    codebook_y = self.get_norm_layer()(
+        dtype=cfg.dtype,
+        weight_dtype=cfg.weight_dtype,
+        name="codebook_norm",
+        epsilon=cfg.normalization_layer_epsilon,
+        kernel_axes=("norm",),
+    )(codebook_y)
+    codebook_size = 32000
+    num_codebooks = 18
+    codebook_logits = linears.DenseGeneral(
+         codebook_size * num_codebooks,
+          weight_dtype=cfg.weight_dtype,
+          dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
+          kernel_axes=("embed", "vocab"),
+          name="codebook_logits_dense",
+          matmul_precision=self.config.matmul_precision,
+      )(codebook_y)
+
+    codebook_logits = jnp.reshape(
+            codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],num_codebooks,codebook_logits.shape[2]//num_codebooks)# "b n (c d) -> b n c d", c=self.config.
+      )
+    return logits,codebook_logits
 
 
 class Transformer(nn.Module):
