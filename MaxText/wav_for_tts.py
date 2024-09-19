@@ -1,8 +1,5 @@
-import datasets
+
 import transformers
-import grain.python as grain
-from input_pipeline import _input_pipeline_utils
-import multihost_dataloading
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from functools import partial
@@ -19,6 +16,7 @@ from whisper_jax import FlaxWhisperForConditionalGeneration
 from array_record.python.array_record_module import ArrayRecordWriter
 import librosa
 MAX_LENGTH_AUDIO = 30 * 44100
+MAX_LENGTH_AUDIO_16K = 30 * 16000
 MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
 CODEBOOK_PAD_TOKEN_ID = 0
@@ -85,26 +83,31 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
         )
         return pred_ids.sequences
     batch_data = []
+    batch_data_16k = []
     batch_length = []
     file_name_arr = []
-   
-    writer = ArrayRecordWriter("/home/fbsdev005/bucket/fish_speech_ds/llm/part_0.arrayrecord", 'group_size:1')
+    os.makedirs(f"{outPath}/{spks}",exist_ok=True)
+    writer = ArrayRecordWriter(f"{outPath}/{spks}/part_0.arrayrecord", 'group_size:1')
     while i < len(files):
         print(f"{i+1}/{len(files)}")
         file = files[i][:-4]
         file_name_arr.append(file)
         wav, sr = librosa.load(f"{wavPath}/{spks}/{file}.wav", sr=44100, mono=True)
+        wav_16k = librosa.resample(wav, orig_sr=sr, target_sr=16000)
         n_frame = wav.shape[0] // 512
 
         batch_length.append(n_frame)
         wav = np.pad(wav,(0,MAX_LENGTH_AUDIO-wav.shape[0]))
+        wav_16k = np.pad(wav_16k,(0,MAX_LENGTH_AUDIO_16K-wav_16k.shape[0]))
         batch_data.append(wav)
+        batch_data_16k.append(wav_16k)
         i+=1
         if len(batch_data) >= batch_size:
             batch_data = np.stack(batch_data)
+            batch_data_16k = np.stack(batch_data_16k)
             #Genrate DAC Codec Codes
-            batch_codes = encode_to_codes(batch_data)
-            batch_whisper_input_features = whisper_processor(batch_data, 44100, return_tensors="np").input_features
+            batch_codes = encode_to_codes(jnp.expand_dims(batch_data,1))
+            batch_whisper_input_features = whisper_processor(batch_data_16k,sampling_rate=16000, return_tensors="np").input_features
             batch_pred_ids = whisper_generate_fn(batch_whisper_input_features)
             #transcribe audios
             batch_transcription = whisper_processor.batch_decode(batch_pred_ids, skip_special_tokens=True)
@@ -126,19 +129,19 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
                 )
                 writer.write(example.SerializeToString())
 
-
+            batch_data_16k = []
             batch_data = []
             batch_length = []
             file_name_arr = []
     writer.close() 
 if __name__ == "__main__":
-    device_mesh = mesh_utils.create_device_mesh((4, 1))
+    device_mesh = mesh_utils.create_device_mesh((1, 1))
     mesh = Mesh(device_mesh, axis_names=("data", "model")) 
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--wav", help="wav", dest="wav", required=True)
     parser.add_argument("-o", "--out", help="out", dest="out", required=True)
-    parser.add_argument("-bs", "--batch_size",type=int, default=4)
+    parser.add_argument("-bs", "--batch_size",type=int, default=1)
 
     args = parser.parse_args()
     device_mesh = mesh_utils.create_device_mesh((jax.local_device_count(),))
