@@ -298,9 +298,7 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   num_codebooks = 18
   codebook_size = 32000
   codebook_target = data["targets"][:, :,1 : 1 + num_codebooks]
-  #codebook_target = jnp.reshape(codebook_target,(codebook_target.shape[0],codebook_target.shape[1]*codebook_target.shape[2]))
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, codebook_size)
-  #codebook_logits = jnp.reshape(codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1]*codebook_logits.shape[2]*codebook_logits.shape[3]))
   xentb, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
   xentb = nn.with_logical_constraint(xentb, ("activation_embed_and_logits_batch", "activation_length"))
   xentb = xentb * jnp.expand_dims((data["targets_segmentation"] != 0),-1)
