@@ -15,13 +15,15 @@ from transformers import WhisperProcessor
 from whisper_jax import FlaxWhisperForConditionalGeneration
 from array_record.python.array_record_module import ArrayRecordWriter
 import librosa
+from jax.experimental.compilation_cache import compilation_cache as cc
+cc.set_cache_dir("./jax_cache")
 MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_AUDIO_16K = 30 * 16000
 MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
 CODEBOOK_PAD_TOKEN_ID = 0
 
-def create_pair(semantics,text,tokenizer,n_frames,speaker):
+def create_pair(semantics,text,n_frames,tokenizer,speaker):
     semantics_slice = semantics[:,:n_frames]
     #semantics = semantics.squeeze(0).tranpose(1,0)
     prefix = tokenizer.convert_tokens_to_ids(["<|im_start|>"]) 
@@ -106,16 +108,16 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
             batch_data = np.stack(batch_data)
             batch_data_16k = np.stack(batch_data_16k)
             #Genrate DAC Codec Codes
-            batch_codes = encode_to_codes(jnp.expand_dims(batch_data,1))
+            batch_codes , _ = encode_to_codes(jnp.expand_dims(batch_data,1))
             batch_whisper_input_features = whisper_processor(batch_data_16k,sampling_rate=16000, return_tensors="np").input_features
             batch_pred_ids = whisper_generate_fn(batch_whisper_input_features)
             #transcribe audios
             batch_transcription = whisper_processor.batch_decode(batch_pred_ids, skip_special_tokens=True)
             #tokenize
-            batch_tokens = tokenizer(batch_transcription)
+            batch_tokens = tokenizer(batch_transcription)['input_ids']
 
-            for semantic,batch_token,length in zip(batch_codes,batch_tokens,batch_length):
-                final_token,labels = partial(create_pair,tokenizer=tokenizer,speaker="AURORA")(semantic,batch_token,length)
+            for semantic,single_token,single_length in zip(batch_codes,batch_tokens,batch_length):
+                final_token,labels = partial(create_pair,tokenizer=tokenizer,speaker="AURORA")(semantic,single_token,single_length)
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
@@ -135,13 +137,13 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
             file_name_arr = []
     writer.close() 
 if __name__ == "__main__":
-    device_mesh = mesh_utils.create_device_mesh((1, 1))
+    device_mesh = mesh_utils.create_device_mesh((4, 1))
     mesh = Mesh(device_mesh, axis_names=("data", "model")) 
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--wav", help="wav", dest="wav", required=True)
     parser.add_argument("-o", "--out", help="out", dest="out", required=True)
-    parser.add_argument("-bs", "--batch_size",type=int, default=1)
+    parser.add_argument("-bs", "--batch_size",type=int, default=4)
 
     args = parser.parse_args()
     device_mesh = mesh_utils.create_device_mesh((jax.local_device_count(),))
