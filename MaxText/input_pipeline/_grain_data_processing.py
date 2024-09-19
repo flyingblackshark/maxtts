@@ -51,16 +51,17 @@ def preprocessing_pipeline(
     add_bos=True,
     add_eos=True,
     num_epochs=1,
-    packing=True,
-    shift=True,
+    packing=False,
+    shift=False,
     drop_remainder=False,
 ):
   """Use grain to pre-process the dataset and return iterators"""
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."
 
   operations = []
-  operations.append(_input_pipeline_utils.ParseFeatures(data_column, tokenize))
-  operations.append(_input_pipeline_utils.NormalizeFeatures(data_column, tokenize))
+  operations.append(_input_pipeline_utils.ParseAndNormalizeFeatures())
+  #operations.append(_input_pipeline_utils.ParseFeatures(data_column, tokenize))
+  #operations.append(_input_pipeline_utils.NormalizeFeatures(data_column, tokenize))
 
   if tokenize:
     operations.append(_grain_tokenizer.TokenizeAndTrim(["inputs", "targets"], max_target_length, tokenizer_path, add_bos, add_eos))

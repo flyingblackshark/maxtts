@@ -144,6 +144,22 @@ class HFDataSource(grain.RandomAccessDataSource):
         self._update_shard(idx)
 
 ########## Functions used by Grain pipeline
+@dataclasses.dataclass
+class ParseAndNormalizeFeatures(grain.MapTransform):
+  def map(self, features):
+    parsed = tf.io.parse_example(features, {
+      "inputs": tf.io.FixedLenFeature([], dtype=tf.string),
+      "targets": tf.io.FixedLenFeature([], dtype=tf.string)
+      })
+    inputs = tf.io.parse_tensor(parsed["inputs"],tf.int64).numpy().transpose(1,0)
+    targets = tf.io.parse_tensor(parsed["targets"],tf.int64).numpy().transpose(1,0)
+
+    return {
+        "inputs": inputs,
+        "targets": targets,
+    }
+
+
 
 @dataclasses.dataclass
 class ParseFeatures(grain.MapTransform):
@@ -208,9 +224,9 @@ class PadToMaxLength(grain.MapTransform):
       pad_amount = [(0, pad_amount)] + [(0, 0)] * (len(x.shape) - 1)
       return np.pad(x, pad_amount)
 
-    data["inputs_segmentation"] = np.ones(data["inputs"].shape, dtype=np.int32)
+    data["inputs_segmentation"] = np.ones(data["inputs"].shape[0], dtype=np.int32)
     data["inputs_position"] = np.arange(data["inputs"].shape[0], dtype=np.int32)
-    data["targets_segmentation"] = np.ones(data["targets"].shape, dtype=np.int32)
+    data["targets_segmentation"] = np.ones(data["targets"].shape[0], dtype=np.int32)
     data["targets_position"] = np.arange(data["targets"].shape[0], dtype=np.int32)
     for key, _ in data.items():
       data[key] = _pad(data[key], self.max_length)

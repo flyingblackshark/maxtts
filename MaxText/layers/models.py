@@ -260,7 +260,7 @@ class Decoder(nn.Module):
     mesh = self.mesh
     assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
 
-    # [batch, length , codebook_dim] -> [batch, length, codebook_dim , emb_dim]
+    # [batch, length , codebook_dim] -> [batch, length, emb_dim]
     y = self.shared_embedding(decoder_input_tokens.astype("int32"))
     y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
     y = y.astype(cfg.dtype)
