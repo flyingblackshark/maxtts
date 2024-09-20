@@ -162,7 +162,7 @@ class MaxEngine(engine_api.Engine):
     sequence_indicator = jnp.expand_dims(one_d_output, 0)
 
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
-      flat_logits, new_vars = self.model.apply(
+      (flat_logits,codebook_flat_logits),new_vars = self.model.apply(
           params,
           input_tokens,
           positions,
@@ -172,14 +172,18 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-
+    codebook_dim = 18
     next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
-    generated_tokens = jnp.zeros((1, 1), dtype=jnp.int32)
+    generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
     selected_logits = jax.lax.dynamic_slice(
         flat_logits, (0, true_length - 1, 0), (flat_logits.shape[0], 1, flat_logits.shape[2])
     )
+    
     selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
-
+    codebook_selected_logits = jax.lax.dynamic_slice(
+        codebook_flat_logits, (0, true_length - 1, 0,0), (codebook_flat_logits.shape[0], 1, codebook_flat_logits.shape[2],codebook_flat_logits.shape[3])
+    )
+    codebook_selected_logits = jax.lax.with_sharding_constraint(codebook_selected_logits, self.replicated_sharding)
     # sampling first token
     first_generated_token = inference_utils.sampling(
         selected_logits,
@@ -189,7 +193,19 @@ class MaxEngine(engine_api.Engine):
         nucleus_topp=self.config.decode_sampling_nucleus_p,
         temperature=self.config.decode_sampling_temperature,
     )
-
+    codebook_generated_tokens = []
+    for i in range(codebook_dim):
+      codebook_generated_token = inference_utils.sampling(
+        codebook_selected_logits[:,:,:,i],
+        self.rng,
+        self.config.decode_sampling_strategy,
+        topk=self.config.decode_sampling_top_k,
+        nucleus_topp=self.config.decode_sampling_nucleus_p,
+        temperature=self.config.decode_sampling_temperature,
+      )
+      codebook_generated_tokens.append(codebook_generated_token)
+    first_codebook_generated_token = jnp.stack(codebook_generated_tokens,axis=-1)
+    first_generated_token = jnp.concatenate((jnp.expand_dims(first_generated_token,-1),first_codebook_generated_token),axis=-1)
     all_valid = jnp.ones(first_generated_token.shape, dtype=jnp.int8)
     result = engine_api.ResultTokens(
         data=jnp.concatenate(
@@ -221,7 +237,7 @@ class MaxEngine(engine_api.Engine):
 
     # run one step generation
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
-      out_logits, new_vars = self.model.apply(
+      (out_logits,out_codebook_logits), new_vars = self.model.apply(
           params | {"cache": decode_state["cache"]},
           previous_token,
           decode_state["next_pos"],
@@ -230,8 +246,9 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-
+    codebook_dim = 18
     out_logits = jax.lax.with_sharding_constraint(out_logits, self.replicated_sharding)
+    out_codebook_logits = jax.lax.with_sharding_constraint(out_codebook_logits, self.replicated_sharding)
     new_cache = jax.lax.with_sharding_constraint(new_vars["cache"], self.kv_cache_shardings)
 
     # sampling tokens
@@ -243,7 +260,19 @@ class MaxEngine(engine_api.Engine):
         nucleus_topp=self.config.decode_sampling_nucleus_p,
         temperature=self.config.decode_sampling_temperature,
     )
-
+    codebook_new_tokens = []
+    for i in range(codebook_dim):
+      codebook_new_token = inference_utils.sampling(
+        out_codebook_logits[:,:,i],
+        self.rng,
+        self.config.decode_sampling_strategy,
+        topk=self.config.decode_sampling_top_k,
+        nucleus_topp=self.config.decode_sampling_nucleus_p,
+        temperature=self.config.decode_sampling_temperature,
+      )
+      codebook_new_tokens.append(codebook_new_token)
+    codebook_new_tokens = jnp.stack(codebook_new_tokens,axis=-1)
+    new_token = jnp.concatenate((jnp.expand_dims(new_token,-1),codebook_new_tokens),axis=-1)
     all_valid = jnp.ones(new_token.shape, dtype=jnp.int8)
     result = engine_api.ResultTokens(
         data=jnp.concatenate(
@@ -371,15 +400,20 @@ class MaxEngine(engine_api.Engine):
 
     # pylint: disable=unused-argument
     def init(abstract_params):
+      codebook_dim = 18
       x = jnp.ones(
+          (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length,codebook_dim+1),
+          dtype=jnp.int32,
+      )
+      x2 = jnp.ones(
           (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length),
           dtype=jnp.int32,
       )
       _, cache = self.model.apply(
           abstract_params,
           x,
-          x,
-          decoder_segment_ids=jnp.zeros(x.shape, dtype=jnp.int32) + common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR,
+          x2,
+          decoder_segment_ids=jnp.zeros(x2.shape, dtype=jnp.int32) + common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR,
           enable_dropout=False,
           model_mode=common_types.MODEL_MODE_PREFILL,
           rngs={"params": self.rng},
@@ -387,8 +421,8 @@ class MaxEngine(engine_api.Engine):
       )
 
       next_pos = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1), dtype=jnp.int32)
-      generated_tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1), dtype=jnp.int32)
-      tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1), dtype=jnp.int32)
+      generated_tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
+      tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
       return {
           "logits": jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1, self.config.vocab_size)),
           "cache": cache["cache"],

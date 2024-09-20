@@ -15,8 +15,8 @@ from transformers import WhisperProcessor
 from whisper_jax import FlaxWhisperForConditionalGeneration
 from array_record.python.array_record_module import ArrayRecordWriter
 import librosa
-from jax.experimental.compilation_cache import compilation_cache as cc
-cc.set_cache_dir("./jax_cache")
+# from jax.experimental.compilation_cache import compilation_cache as cc
+# cc.set_cache_dir("./jax_cache")
 MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_AUDIO_16K = 30 * 16000
 MAX_LENGTH_TEXT = 10000
@@ -25,14 +25,13 @@ CODEBOOK_PAD_TOKEN_ID = 0
 
 def create_pair(semantics,text,n_frames,tokenizer,speaker):
     semantics_slice = semantics[:,:n_frames]
-    #semantics = semantics.squeeze(0).tranpose(1,0)
     prefix = tokenizer.convert_tokens_to_ids(["<|im_start|>"]) 
     prefix = prefix + tokenizer.encode("user\n") + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
     prefix = prefix + tokenizer.convert_tokens_to_ids(["<|im_start|>"]) + tokenizer.encode(f"{speaker}\n")
     encoded = prefix + np.asarray(text).tolist()
     num_codebooks = 18
     semantic_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
-    semantic_length = semantics_slice.shape[1]#sum([len(i[0]) for i in semantics])
+    semantic_length = semantics_slice.shape[1]
     tokens = (
         encoded
         + [semantic_token_id] * semantic_length
@@ -40,7 +39,6 @@ def create_pair(semantics,text,n_frames,tokenizer,speaker):
     )
     prompt_length = len(encoded)
     codes = [[CODEBOOK_PAD_TOKEN_ID] * prompt_length for _ in range(num_codebooks)]
-    #for segment in semantics:
     for book_idx, book in zip(range(num_codebooks), semantics_slice):
         for j in book:
             codes[book_idx].append(int(j) + 1)
@@ -53,7 +51,7 @@ def create_pair(semantics,text,n_frames,tokenizer,speaker):
     labels[1:, :prompt_length] = -100
     tokens = tokens[:, :-1]
     labels = labels[:, 1:]
-    return (tokens,labels)
+    return (tokens,labels,prompt_length)
 def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         "fishaudio/fish-speech-1",
@@ -111,13 +109,14 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
             batch_codes , _ = encode_to_codes(jnp.expand_dims(batch_data,1))
             batch_whisper_input_features = whisper_processor(batch_data_16k,sampling_rate=16000, return_tensors="np").input_features
             batch_pred_ids = whisper_generate_fn(batch_whisper_input_features)
+            batch_pred_ids = np.asarray(batch_pred_ids)
             #transcribe audios
             batch_transcription = whisper_processor.batch_decode(batch_pred_ids, skip_special_tokens=True)
             #tokenize
             batch_tokens = tokenizer(batch_transcription)['input_ids']
 
             for semantic,single_token,single_length in zip(batch_codes,batch_tokens,batch_length):
-                final_token,labels = partial(create_pair,tokenizer=tokenizer,speaker="AURORA")(semantic,single_token,single_length)
+                final_token,labels,prompt_length = partial(create_pair,tokenizer=tokenizer,speaker="assistant")(semantic,single_token,single_length)
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
@@ -125,10 +124,13 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(final_token).numpy()])),
                             'targets': tf.train.Feature(
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(labels).numpy()])),
+                            'prompt_length':tf.train.Feature(
+                               int64_list=tf.train.Int64List(value=[prompt_length])
+                            )
                             #'speaker':tf.train.Feature(bytes_list=tf.train.BytesList(value=[item["speaker"].encode('utf-8')]))
                         }
                     )
-                )
+                )   
                 writer.write(example.SerializeToString())
 
             batch_data_16k = []

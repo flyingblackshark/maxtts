@@ -50,10 +50,10 @@ def preprocessing_pipeline(
     tokenize=True,
     add_bos=True,
     add_eos=True,
-    num_epochs=1,
+    num_epochs=None,
     packing=False,
     shift=False,
-    drop_remainder=False,
+    drop_remainder=True,
 ):
   """Use grain to pre-process the dataset and return iterators"""
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."

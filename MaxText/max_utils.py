@@ -669,7 +669,7 @@ def create_learning_rate_schedule(config):
 
 # Cross entropy implementation is taken from original T5X codebase:
 # https://github.com/google-research/t5x/blob/ace831eea1e2742b4299cd1a9af7e4f302038351/t5x/losses.py#L25-L101
-#@jax.custom_vjp
+@jax.custom_vjp
 def cross_entropy_with_logits(
     logits: jnp.ndarray, targets: jnp.ndarray, z_loss: float
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
@@ -693,8 +693,7 @@ def cross_entropy_with_logits(
   """
   logits_sum = jax.scipy.special.logsumexp(logits, axis=-1, keepdims=True)
   log_softmax = logits - logits_sum
-  mask = targets != -100
-  loss = -jnp.sum(jnp.where(mask,targets * log_softmax,0), axis=-1)
+  loss = -jnp.sum(targets * log_softmax, axis=-1)
   # Add auxiliary z-loss term.
   log_z = jnp.squeeze(logits_sum, axis=-1)
   total_z_loss = z_loss * jax.lax.square(log_z)
@@ -702,74 +701,74 @@ def cross_entropy_with_logits(
   return loss, total_z_loss
 
 
-# def _cross_entropy_with_logits_fwd(
-#     logits: jnp.ndarray, targets: jnp.ndarray, z_loss: float = 0.0
-# ) -> Tuple[
-#     Tuple[jnp.ndarray, jnp.ndarray],
-#     Tuple[
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#     ],
-# ]:
-#   """Forward-mode of `cross_entropy_with_logits`."""
-#   max_logit = logits.max(axis=-1, keepdims=True)
-#   shifted = logits - max_logit
-#   exp_shifted = jnp.exp(shifted)
-#   sum_exp = jnp.sum(exp_shifted, axis=-1, keepdims=True)
-#   log_softmax = shifted - jnp.log(sum_exp)
-#   loss = -jnp.sum(targets * log_softmax, axis=-1)
-#   # Add auxiliary z-loss term.
-#   log_z = jnp.squeeze(jnp.log(sum_exp) + max_logit, axis=-1)
-#   total_z_loss = z_loss * jax.lax.square(log_z)
-#   loss += total_z_loss
-#   return (loss, total_z_loss), (
-#       logits,
-#       targets,
-#       z_loss,
-#       exp_shifted,
-#       sum_exp,  # pytype: disable=bad-return-type  #jax-ndarray
-#       log_softmax,
-#       log_z,
-#   )
+def _cross_entropy_with_logits_fwd(
+    logits: jnp.ndarray, targets: jnp.ndarray, z_loss: float = 0.0
+) -> Tuple[
+    Tuple[jnp.ndarray, jnp.ndarray],
+    Tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ],
+]:
+  """Forward-mode of `cross_entropy_with_logits`."""
+  max_logit = logits.max(axis=-1, keepdims=True)
+  shifted = logits - max_logit
+  exp_shifted = jnp.exp(shifted)
+  sum_exp = jnp.sum(exp_shifted, axis=-1, keepdims=True)
+  log_softmax = shifted - jnp.log(sum_exp)
+  loss = -jnp.sum(targets * log_softmax, axis=-1)
+  # Add auxiliary z-loss term.
+  log_z = jnp.squeeze(jnp.log(sum_exp) + max_logit, axis=-1)
+  total_z_loss = z_loss * jax.lax.square(log_z)
+  loss += total_z_loss
+  return (loss, total_z_loss), (
+      logits,
+      targets,
+      z_loss,
+      exp_shifted,
+      sum_exp,  # pytype: disable=bad-return-type  #jax-ndarray
+      log_softmax,
+      log_z,
+  )
 
 
-# def _cross_entropy_with_logits_bwd(
-#     res: Tuple[
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#         jnp.ndarray,
-#     ],
-#     g: Tuple[jnp.ndarray, jnp.ndarray],
-# ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-#   """Backward-mode of `cross_entropy_with_logits`."""
-#   g = g[0]  # Ignore z_loss component as that is only used for logging.
-#   logits, targets, z_loss, exp_shifted, sum_exp, log_softmax, log_z = res
-#   # z-loss term adds the (2 * z_loss * log_z) factor.
-#   deriv = (
-#       jnp.expand_dims(1 + 2 * z_loss * log_z, -1) * exp_shifted / sum_exp
-#       - targets
-#   )
-#   g_logits = jnp.expand_dims(g, axis=-1) * deriv
-#   g_targets = -jnp.expand_dims(g, axis=-1) * log_softmax
-#   return (
-#       jnp.asarray(g_logits, logits.dtype),
-#       jnp.asarray(g_targets, targets.dtype),
-#       jnp.array(0.0),
-#   )  # sets z-loss coeff gradient to 0
+def _cross_entropy_with_logits_bwd(
+    res: Tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ],
+    g: Tuple[jnp.ndarray, jnp.ndarray],
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+  """Backward-mode of `cross_entropy_with_logits`."""
+  g = g[0]  # Ignore z_loss component as that is only used for logging.
+  logits, targets, z_loss, exp_shifted, sum_exp, log_softmax, log_z = res
+  # z-loss term adds the (2 * z_loss * log_z) factor.
+  deriv = (
+      jnp.expand_dims(1 + 2 * z_loss * log_z, -1) * exp_shifted / sum_exp
+      - targets
+  )
+  g_logits = jnp.expand_dims(g, axis=-1) * deriv
+  g_targets = -jnp.expand_dims(g, axis=-1) * log_softmax
+  return (
+      jnp.asarray(g_logits, logits.dtype),
+      jnp.asarray(g_targets, targets.dtype),
+      jnp.array(0.0),
+  )  # sets z-loss coeff gradient to 0
 
 
-# cross_entropy_with_logits.defvjp(
-#     _cross_entropy_with_logits_fwd, _cross_entropy_with_logits_bwd
-# )
+cross_entropy_with_logits.defvjp(
+    _cross_entropy_with_logits_fwd, _cross_entropy_with_logits_bwd
+)
 
 
 def get_abstract_state(model, tx, config, rng, mesh, is_training=True):
@@ -808,15 +807,22 @@ def get_kv_cache_annotations(model, config, rng, mesh):
   """Get a shaped abstraction of the state (including optimizer)"""
 
   def init_kv_cache(model, config):
+    codebook_dim = 18
     input_shape = (
         config.micro_batch_size_to_train_on,
         config.max_prefill_predict_length,
+        codebook_dim + 1
+    )
+    input_shape2 = (
+        config.micro_batch_size_to_train_on,
+        config.max_prefill_predict_length,
+
     )
 
     model_vars = model.init(
         {"params": rng, "dropout": rng, "aqt": rng},
         jnp.ones(input_shape),
-        jnp.ones(input_shape),
+        jnp.ones(input_shape2),
         model_mode=common_types.MODEL_MODE_PREFILL,
     )
     return model_vars["cache"]

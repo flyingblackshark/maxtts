@@ -293,16 +293,20 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   one_hot_targets = jax.nn.one_hot(data["targets"][:,:,0], config.vocab_size)
   xent, _ = max_utils.cross_entropy_with_logits(logits, one_hot_targets,0.0)
   xent = nn.with_logical_constraint(xent, ("activation_embed_and_logits_batch", "activation_length"))
+  
   # Mask out paddings at the end of each example.
   xent = xent * (data["targets_segmentation"] != 0)
   num_codebooks = 18
   codebook_size = 32000
   codebook_target = data["targets"][:, :,1 : 1 + num_codebooks]
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, codebook_size)
-  xentb, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
-  xentb = nn.with_logical_constraint(xentb, ("activation_embed_and_logits_batch", "activation_length"))
-  xentb = xentb * jnp.expand_dims((data["targets_segmentation"] != 0),-1)
-  total_loss = jnp.sum(xent) + jnp.sum(xentb)
+  xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
+  xent_codebook = nn.with_logical_constraint(xent_codebook, ("activation_embed_and_logits_batch", "activation_length"))
+  # Mask out paddings at the end of each example.
+  mask = (data["prompt_length"] != 0)
+  mask2 = (data["targets_segmentation"] != 0)
+  xent_codebook = xent_codebook * jnp.expand_dims(jnp.logical_and(mask,mask2),-1)
+  total_loss = jnp.sum(xent) + jnp.sum(xent_codebook)
   total_weights = 2 * jnp.sum(data["targets_segmentation"] != 0)
   loss = total_loss / (total_weights + EPS)
   # get moe load balance loss
