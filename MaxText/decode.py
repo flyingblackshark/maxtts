@@ -34,7 +34,7 @@ def encode_tokens(
     tokenizer,
     string,
     prompt_tokens=None,
-    num_codebooks=18,
+    num_codebooks=9,
 ):
     #string = clean_text(string)
     string = f"<|im_start|>user\n{string}<|im_end|><|im_start|>assistant\n"
@@ -99,17 +99,20 @@ def main(config):
 
     text = config.prompt
     #metadata = engine.get_tokenizer()
+
     tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
     im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
     tokens,true_length = encode_tokens(tokenizer_model,text)
     tokens = tokens.transpose(1,0)
+    padding = config.max_prefill_predict_length - tokens.shape[0]
+    padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
     #tokenizer_model = engine.build_tokenizer(metadata)
     # tokens, true_length = tokenizer_model.encode(
     #     text, is_bos=True, prefill_lengths=[config.max_prefill_predict_length]
     # )
     #assert true_length <= config.max_prefill_predict_length, "can't take too many tokens"
     #assert config.quantization != "fp8", "fp8 on NVIDIA GPUs is not supported in decode.py yet"
-    prefill_result, first_token = engine.prefill(params=params, padded_tokens=tokens, true_length=true_length)
+    prefill_result, first_token = engine.prefill(params=params, padded_tokens=padded_tokens, true_length=true_length)
     slot = 0
 
     decode_state = engine.init_decode_state()
@@ -120,13 +123,13 @@ def main(config):
     sampled_tokens_list.append(first_token)
     for _ in steps:
         decode_state, sampled_tokens = engine.generate(params, decode_state)
-        # if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
-        #     break
+        if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
+            break
         sampled_tokens_list.append(sampled_tokens)
     results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
-    results = jnp.stack(results,axis=0)[:,1:]
+    results = jnp.stack(results,axis=0)[:,1:]   
 
-    model, variables = dac_jax.load_model(model_type="44khz",model_bitrate="16kbps")
+    model, variables = dac_jax.load_model(model_type="44khz")
     @partial(jax.jit, static_argnums=(1, 2))
     def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
         recons = model.apply(

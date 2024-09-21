@@ -370,7 +370,7 @@ class Decoder(nn.Module):
               deterministic,
               model_mode,
           )
-    codebook_y = y 
+    
     y = self.get_norm_layer()(
         dtype=cfg.dtype,
         weight_dtype=cfg.weight_dtype,
@@ -379,7 +379,7 @@ class Decoder(nn.Module):
         kernel_axes=("norm",),
     )(y)
     y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
-
+    codebook_y = y 
     # [batch, length, emb_dim] -> [batch, length, vocab_size]
     if cfg.logits_via_embedding:
       # Use the transpose of embedding matrix for logit transform.
@@ -404,13 +404,6 @@ class Decoder(nn.Module):
     logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
     logits = logits.astype(jnp.float32)
 
-    codebook_y = self.get_norm_layer()(
-        dtype=cfg.dtype,
-        weight_dtype=cfg.weight_dtype,
-        name="codebook_norm",
-        epsilon=cfg.normalization_layer_epsilon,
-        kernel_axes=("norm",),
-    )(codebook_y)
     codebook_size = 1024
     codebook_dim = 9
     codebook_logits = linears.DenseGeneral(
@@ -425,6 +418,7 @@ class Decoder(nn.Module):
     codebook_logits = jnp.reshape(
             codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],codebook_dim,codebook_logits.shape[2]//codebook_dim)# "b n (c d) -> b n c d", c=self.config.
       )
+    codebook_logits = codebook_logits.astype(jnp.float32)
     return logits,codebook_logits
 
 

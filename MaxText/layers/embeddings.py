@@ -87,12 +87,12 @@ class Embed(nn.Module):
       one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
       output = jnp.dot(one_hot, jnp.asarray(self.embedding, self.dtype))
     else:
-      semantic_token_id = 0
+      semantic_token_id = 5
       output_vocab = [jnp.asarray(self.vocab_embedding, self.dtype)[inputs[:,:, 0]]]
-      codebook_size = 18
-      for i in range(codebook_size):
-        output_codebook = jnp.asarray(self.codebook_embedding, self.dtype)[inputs[:,: ,i + 1] + i * codebook_size]
-        #output_codebook = output_codebook.at[inputs.transpose(0,2,1)[:, 0] != semantic_token_id].set(0)
+      codebook_dim = 9
+      for i in range(codebook_dim):
+        output_codebook = jnp.asarray(self.codebook_embedding, self.dtype)[inputs[:,: ,i + 1] + i * codebook_dim]
+        output_codebook = jnp.where(jnp.expand_dims(inputs[:,:, 0] != semantic_token_id,-1),0,output_codebook)
         output_vocab.append(output_codebook)
       output = jnp.stack(output_vocab,axis=3)
       output = jnp.sum(output,axis=3)
