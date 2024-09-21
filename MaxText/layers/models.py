@@ -411,10 +411,10 @@ class Decoder(nn.Module):
         epsilon=cfg.normalization_layer_epsilon,
         kernel_axes=("norm",),
     )(codebook_y)
-    codebook_size = 32000
-    num_codebooks = 18
+    codebook_size = 1024
+    codebook_dim = 9
     codebook_logits = linears.DenseGeneral(
-         codebook_size * num_codebooks,
+         codebook_size * codebook_dim,
           weight_dtype=cfg.weight_dtype,
           dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
           kernel_axes=("embed", "vocab"),
@@ -423,7 +423,7 @@ class Decoder(nn.Module):
       )(codebook_y)
 
     codebook_logits = jnp.reshape(
-            codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],num_codebooks,codebook_logits.shape[2]//num_codebooks)# "b n (c d) -> b n c d", c=self.config.
+            codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],codebook_dim,codebook_logits.shape[2]//codebook_dim)# "b n (c d) -> b n c d", c=self.config.
       )
     return logits,codebook_logits
 

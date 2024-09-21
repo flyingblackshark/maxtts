@@ -482,7 +482,7 @@ def init_initial_state(model, tx, config, is_training, key):
 
   Args: model, tx, config, is_training, key
   """
-  codebook_dim = 18
+  codebook_dim = 9
   input_shape_sentence = (config.micro_batch_size_to_train_on, config.max_target_length , codebook_dim + 1)
   input_shape_length = (config.micro_batch_size_to_train_on, config.max_target_length)
   model_vars = model.init(
@@ -807,7 +807,7 @@ def get_kv_cache_annotations(model, config, rng, mesh):
   """Get a shaped abstraction of the state (including optimizer)"""
 
   def init_kv_cache(model, config):
-    codebook_dim = 18
+    codebook_dim = 9
     input_shape = (
         config.micro_batch_size_to_train_on,
         config.max_prefill_predict_length,

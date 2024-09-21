@@ -172,7 +172,7 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-    codebook_dim = 18
+    codebook_dim = 9
     next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
     generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
     selected_logits = jax.lax.dynamic_slice(
@@ -246,7 +246,7 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-    codebook_dim = 18
+    codebook_dim = 9
     out_logits = jax.lax.with_sharding_constraint(out_logits, self.replicated_sharding)
     out_codebook_logits = jax.lax.with_sharding_constraint(out_codebook_logits, self.replicated_sharding)
     new_cache = jax.lax.with_sharding_constraint(new_vars["cache"], self.kv_cache_shardings)
@@ -400,7 +400,7 @@ class MaxEngine(engine_api.Engine):
 
     # pylint: disable=unused-argument
     def init(abstract_params):
-      codebook_dim = 18
+      codebook_dim = 9
       x = jnp.ones(
           (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length,codebook_dim+1),
           dtype=jnp.int32,

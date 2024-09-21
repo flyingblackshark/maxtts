@@ -296,18 +296,19 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   
   # Mask out paddings at the end of each example.
   xent = xent * (data["targets_segmentation"] != 0)
-  num_codebooks = 18
-  codebook_size = 32000
-  codebook_target = data["targets"][:, :,1 : 1 + num_codebooks]
+  codebook_dim = 9
+  codebook_size = 1024
+  codebook_target = data["targets"][:, :,1 : 1 + codebook_dim]
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, codebook_size)
   xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
   xent_codebook = nn.with_logical_constraint(xent_codebook, ("activation_embed_and_logits_batch", "activation_length"))
   # Mask out paddings at the end of each example.
   mask = (data["prompt_length"] != 0)
   mask2 = (data["targets_segmentation"] != 0)
-  xent_codebook = xent_codebook * jnp.expand_dims(jnp.logical_and(mask,mask2),-1)
+  combine_mask = jnp.logical_and(mask,mask2)
+  xent_codebook = xent_codebook * jnp.expand_dims(combine_mask,-1)
   total_loss = jnp.sum(xent) + jnp.sum(xent_codebook)
-  total_weights = 2 * jnp.sum(data["targets_segmentation"] != 0)
+  total_weights = jnp.sum(data["targets_segmentation"] != 0) + jnp.sum(combine_mask != 0)
   loss = total_loss / (total_weights + EPS)
   # get moe load balance loss
   moe_lb_loss = 0.0
