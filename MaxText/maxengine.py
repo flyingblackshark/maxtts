@@ -196,7 +196,7 @@ class MaxEngine(engine_api.Engine):
     codebook_generated_tokens = []
     for i in range(codebook_dim):
       codebook_generated_token = inference_utils.sampling(
-        codebook_selected_logits[:,:,:,i],
+        codebook_selected_logits[:,:,i],
         self.rng,
         self.config.decode_sampling_strategy,
         topk=self.config.decode_sampling_top_k,

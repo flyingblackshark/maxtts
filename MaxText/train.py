@@ -311,6 +311,8 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   xent_codebook = xent_codebook * jnp.expand_dims(combine_mask,-1)
   total_loss = jnp.sum(xent) + jnp.sum(xent_codebook)
   total_weights = jnp.sum(data["targets_segmentation"] != 0) + jnp.sum(combine_mask != 0)
+  # total_loss = jnp.sum(xent)
+  # total_weights = jnp.sum(data["targets_segmentation"] != 0)
   loss = total_loss / (total_weights + EPS)
   # get moe load balance loss
   moe_lb_loss = 0.0

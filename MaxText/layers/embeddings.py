@@ -59,10 +59,12 @@ class Embed(nn.Module):
         (self.num_embeddings, self.features),
         self.config.weight_dtype,
     )
+    codebook_dim = 9
+    codebook_size = 1024
     self.codebook_embedding = self.param(
         "codebook_embedding",
         with_logical_partitioning(self.embedding_init, ("vocab", "embed")),
-        (self.num_embeddings, self.features),
+        (codebook_dim*codebook_size, self.features),
         self.config.weight_dtype,
     )
 
@@ -90,8 +92,9 @@ class Embed(nn.Module):
       semantic_token_id = 5
       output_vocab = [jnp.asarray(self.vocab_embedding, self.dtype)[inputs[:,:, 0]]]
       codebook_dim = 9
+      codebook_size = 1024
       for i in range(codebook_dim):
-        output_codebook = jnp.asarray(self.codebook_embedding, self.dtype)[inputs[:,: ,i + 1] + i * codebook_dim]
+        output_codebook = jnp.asarray(self.codebook_embedding, self.dtype)[inputs[:,: ,i + 1] + i * codebook_size]
         output_codebook = jnp.where(jnp.expand_dims(inputs[:,:, 0] != semantic_token_id,-1),0,output_codebook)
         output_vocab.append(output_codebook)
       output = jnp.stack(output_vocab,axis=3)

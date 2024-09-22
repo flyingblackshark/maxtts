@@ -154,6 +154,6 @@ if __name__ == "__main__":
   os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
   pyconfig.initialize(sys.argv)
   cfg = pyconfig.config
-  validate_config(cfg)
+  validate_config(cfg)  
   max_utils.print_system_information()
   main(cfg)
