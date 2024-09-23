@@ -23,13 +23,26 @@ MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
 CODEBOOK_PAD_TOKEN_ID = 0
 
-def create_pair(semantics,text,n_frames,tokenizer,speaker):
+def create_pair(semantics,text_tokens,n_frames,tokenizer):
     semantics_slice = semantics[:,:n_frames]
-    prefix = tokenizer.convert_tokens_to_ids(["<|im_start|>"]) 
-    prefix = prefix + tokenizer.encode("user\n") + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
-    prefix = prefix + tokenizer.convert_tokens_to_ids(["<|im_start|>"]) + tokenizer.encode(f"{speaker}\n")
-    encoded = prefix + np.asarray(text).tolist()
-    num_codebooks = 18
+    string_prefix = "<|im_start|>user\n"
+    string_suffix = "<|im_end|><|im_start|>assistant\n"
+
+    encoded_prefix = tokenizer.encode(
+        string_prefix,
+        add_special_tokens=False,
+        max_length=10**6,
+        truncation=False,
+    )
+
+    encoded_suffix = tokenizer.encode(
+        string_suffix,
+        add_special_tokens=False,
+        max_length=10**6,
+        truncation=False,
+    )
+    encoded = encoded_prefix + np.asarray(text_tokens).tolist() + encoded_suffix
+    num_codebooks = 9
     semantic_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
     semantic_length = semantics_slice.shape[1]
     tokens = (
@@ -112,11 +125,14 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
             batch_pred_ids = np.asarray(batch_pred_ids)
             #transcribe audios
             batch_transcription = whisper_processor.batch_decode(batch_pred_ids, skip_special_tokens=True)
+    
+            if batch_transcription[-1] not in ("!",",","?","."):
+                batch_transcription = batch_transcription + "."
             #tokenize
             batch_tokens = tokenizer(batch_transcription)['input_ids']
 
             for semantic,single_token,single_length in zip(batch_codes,batch_tokens,batch_length):
-                final_token,labels,prompt_length = partial(create_pair,tokenizer=tokenizer,speaker="assistant")(semantic,single_token,single_length)
+                final_token,labels,prompt_length = partial(create_pair,tokenizer=tokenizer)(semantic,single_token,single_length)
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
