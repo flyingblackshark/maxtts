@@ -125,13 +125,15 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
             batch_pred_ids = np.asarray(batch_pred_ids)
             #transcribe audios
             batch_transcription = whisper_processor.batch_decode(batch_pred_ids, skip_special_tokens=True)
-    
-            if batch_transcription[-1] not in ("!",",","?","."):
-                batch_transcription = batch_transcription + "."
+            for j in range(len(batch_transcription)):
+                if batch_transcription[j][-1] not in ("!",",","?","."):
+                    batch_transcription[j] = batch_transcription[j] + "."
+            
             #tokenize
             batch_tokens = tokenizer(batch_transcription)['input_ids']
 
             for semantic,single_token,single_length in zip(batch_codes,batch_tokens,batch_length):
+
                 final_token,labels,prompt_length = partial(create_pair,tokenizer=tokenizer)(semantic,single_token,single_length)
                 example = tf.train.Example(
                     features=tf.train.Features(
