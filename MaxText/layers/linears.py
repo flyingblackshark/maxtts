@@ -244,7 +244,9 @@ class MlpBlock(nn.Module):
             use_bias=self.use_bias,
             matmul_precision=self.config.matmul_precision,
         )(inputs)
-        x = _convert_to_activation_function(act_fn)(x.astype(jnp.float32))
+        if cfg.activations_in_float32:
+          x = x.astype(jnp.float32)
+        x = _convert_to_activation_function(act_fn)(x)
         activations.append(x)
 
     # Take elementwise product of above intermediate activations.
@@ -527,9 +529,13 @@ class MoeBlock(nn.Module):
       weights = self.reshape_and_update_weights(top_k_weights, top_k_indices)
       inputs = nn.with_logical_constraint(inputs, ("activation_batch", "activation_length", "activation_embed"))
       with jax.named_scope("wi_0"):
-        layer_w0 = self.get_einsum(rhs_mesh_axes=self.wi_kernel_axes)("BSM,EMH -> BSEH", inputs, w0_kernel, precision=matmul_precision).astype(jnp.float32)
+        layer_w0 = self.get_einsum(rhs_mesh_axes=self.wi_kernel_axes)("BSM,EMH -> BSEH", inputs, w0_kernel, precision=matmul_precision)
+        if self.config.activations_in_float32:
+          layer_w0 = layer_w0.astype(jnp.float32)
       with jax.named_scope("wi_1"):
-        layer_w1 = self.get_einsum(rhs_mesh_axes=self.wi_kernel_axes)("BSM,EMH -> BSEH", inputs, w1_kernel, precision=matmul_precision).astype(jnp.float32)
+        layer_w1 = self.get_einsum(rhs_mesh_axes=self.wi_kernel_axes)("BSM,EMH -> BSEH", inputs, w1_kernel, precision=matmul_precision)
+        if self.config.activations_in_float32:
+          layer_w1 = layer_w1.astype(jnp.float32)
       layer_w0_act = _convert_to_activation_function(self.config.mlp_activations[0])(layer_w0)
       layer_multiply = jnp.multiply(layer_w0_act, layer_w1).astype(self.dtype)
       with jax.named_scope("wo"):

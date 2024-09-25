@@ -309,11 +309,13 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   mask2 = (data["targets_segmentation"] != 0)
   combine_mask = jnp.logical_and(mask,mask2)
   xent_codebook = xent_codebook * jnp.expand_dims(combine_mask,-1)
-  total_loss = jnp.sum(xent) + jnp.sum(xent_codebook)
-  total_weights = jnp.sum(data["targets_segmentation"] != 0) + jnp.sum(combine_mask != 0)
-  # total_loss = jnp.sum(xent)
-  # total_weights = jnp.sum(data["targets_segmentation"] != 0)
-  loss = total_loss / (total_weights + EPS)
+  base_loss = jnp.sum(xent)
+  codebook_loss = jnp.sum(xent_codebook)
+  total_loss = base_loss + codebook_loss
+  base_weights = jnp.sum(data["targets_segmentation"] != 0)
+  codebook_weights = jnp.sum(combine_mask != 0)
+  total_weights = base_weights + codebook_weights
+  loss = base_loss / (base_weights+EPS) + codebook_loss / (codebook_weights+EPS)
   # get moe load balance loss
   moe_lb_loss = 0.0
   if config.num_experts > 1:
