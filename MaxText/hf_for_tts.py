@@ -45,7 +45,6 @@ if __name__ == "__main__":
         name="clean",
         split="train",
         streaming=True,
-        token="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",
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         "fishaudio/fish-speech-1",
@@ -53,7 +52,6 @@ if __name__ == "__main__":
         add_eos_token=False,
         model_max_length=15000,
         legacy=False,
-        token="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",
     )
     
     dataset = dataset.map(
