@@ -255,10 +255,10 @@ class MaxEngine(engine_api.Engine):
     new_token = inference_utils.sampling(
         out_logits,
         self.rng,
-        self.config.decode_sampling_strategy,
-        topk=self.config.decode_sampling_top_k,
-        nucleus_topp=self.config.decode_sampling_nucleus_p,
-        temperature=self.config.decode_sampling_temperature,
+        "nucleus",
+        topk=0.1,
+        nucleus_topp=0.1,
+        temperature=0.1,
     )
     codebook_new_tokens = []
     for i in range(codebook_dim):

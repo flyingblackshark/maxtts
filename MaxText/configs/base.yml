@@ -59,6 +59,7 @@ save_config_to_gcs: False
 
 # Activation dtypes.
 dtype: "bfloat16"
+activations_in_float32: False
 # Used to configure quantization in the transformer layers, defaults to null implying bf16.
 # Possible alternative settings are as follows:
 # 'int8' for dynamic range quantization using 8-bits
