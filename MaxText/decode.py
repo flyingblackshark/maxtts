@@ -140,7 +140,7 @@ def main(config):
             method="decode",
         )
         return recons
-    audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0),None).squeeze((0,1))
+    audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0),None).squeeze((0,1) - 1)
     sf.write("test.wav",audio_output,samplerate=44100)
 
 def validate_config(config):
