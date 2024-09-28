@@ -60,11 +60,7 @@ def create_pair(semantics,text_tokens,n_frames,tokenizer):
         book.extend([CODEBOOK_PAD_TOKEN_ID] * 1)
     tokens = [tokens] + codes
     tokens = np.asarray(tokens)
-    labels = tokens.copy()
-    labels[1:, :prompt_length] = -100
-    tokens = tokens[:, :-1]
-    labels = labels[:, 1:]
-    return (tokens,labels,prompt_length)
+    return (tokens,prompt_length)
 def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         "fishaudio/fish-speech-1",
@@ -134,14 +130,14 @@ def batch_process_tts(files,batch_size,outPath,wavPath,spks,mesh):
 
             for semantic,single_token,single_length in zip(batch_codes,batch_tokens,batch_length):
 
-                final_token,labels,prompt_length = partial(create_pair,tokenizer=tokenizer)(semantic,single_token,single_length)
+                final_token,prompt_length = partial(create_pair,tokenizer=tokenizer)(semantic,single_token,single_length)
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
-                            'inputs': tf.train.Feature(
+                            'tokens': tf.train.Feature(
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(final_token).numpy()])),
-                            'targets': tf.train.Feature(
-                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(labels).numpy()])),
+                            # 'targets': tf.train.Feature(
+                            #     bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(labels).numpy()])),
                             'prompt_length':tf.train.Feature(
                                int64_list=tf.train.Int64List(value=[prompt_length])
                             )
