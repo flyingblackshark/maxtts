@@ -6,7 +6,7 @@ import multihost_dataloading
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from functools import partial
-
+import librosa
 import jax
 from jax import numpy as jnp
 import numpy as np
@@ -16,13 +16,15 @@ from array_record.python.array_record_module import ArrayRecordWriter
 MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
+SOURCE_SAMPLERATE = 44100
 class HFParseAudioFeatures(grain.MapTransform):
   """Normalize feature keys for HuggingFace input"""
   def map(self, features):
+    audio_44k = librosa.resample(features["audio"]["array"], orig_sr=SOURCE_SAMPLERATE, target_sr=44100)
     return {
-        "audio": np.asarray(features["audio"]["array"], dtype=np.float32),
+        "audio": np.asarray(audio_44k, dtype=np.float32),
         "text": np.asarray(features["text"], dtype=np.int32),
-    }
+    }   
 
 class PadToMaxLength(grain.MapTransform):
 
@@ -64,7 +66,7 @@ if __name__ == "__main__":
         A NamedSharding is simply a combination of a PartitionSpec and a Mesh instance.
         """
         return NamedSharding(mesh, pspec)
-    model, variables = dac_jax.load_model(model_type="44khz",model_bitrate="16kbps")
+    model, variables = dac_jax.load_model(model_type="44khz")
     x_sharding = get_sharding_for_spec(PartitionSpec("data"))
     @partial(jax.jit, in_shardings=x_sharding,out_shardings=x_sharding)
     def encode_to_codes(x: jnp.ndarray):
@@ -109,61 +111,73 @@ if __name__ == "__main__":
     multihost_gen = multihost_dataloading.MultiHostDataLoadIterator(dataloader, mesh)
 
     CODEBOOK_PAD_TOKEN_ID = 0
-    i = 1
-    writer = ArrayRecordWriter("/home/fbsdev005/bucket/fish_speech_ds/llm/part_0.arrayrecord", 'group_size:1')
+    i = 0
+    writer = None
     for item in multihost_gen:
         print(f"round {i}")
-        # if i%1024 == 0:
-        #     writer.close() 
-        #     writer = ArrayRecordWriter(f"/home/fbsdev005/test/part_{i}.arrayrecord", 'group_size:1')
+        if i%10240 == 0:
+            num = i//10240
+            if writer is not None:
+                writer.close() 
+            writer = ArrayRecordWriter(f"/home/fbsdev005/bucket/fish_speech_ds/maxtext1/hifi_tts_train_part_{num}.arrayrecord", 'group_size:1')
             
-        #Baatch Length
         semantics, scale = encode_to_codes(jnp.expand_dims(item["audio"],1))
-        #Batch Codebook Length 
         semantics = np.asarray(semantics)
         for k in range(GLOBAL_BATCH_SIZE):
             n_frames = item["audio_length"][k]//512
             text_length = item["text_length"][k]
-            #Batch Length -> Length
-            text = item["text"][k][:text_length]
-            #Batch Codebook Length  -> Codebook Length 
+            text_tokens = item["text"][k][:text_length]
             semantics_slice = semantics[k][:,:n_frames]
-            #semantics = semantics.squeeze(0).tranpose(1,0)
-            prefix = tokenizer.convert_tokens_to_ids(["<|im_start|>"]) 
-            prefix = prefix + tokenizer.encode("user\n") + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
-            prefix = prefix + tokenizer.convert_tokens_to_ids(["<|im_start|>"]) + tokenizer.encode("assistant\n")
-            encoded = prefix + np.asarray(text).tolist()
-            num_codebooks = 18
+
+
+            string_prefix = "<|im_start|>user\n"
+            string_suffix = "<|im_end|><|im_start|>smtc\n"
+
+            encoded_prefix = tokenizer.encode(
+                string_prefix,
+                add_special_tokens=False,
+                max_length=10**6,
+                truncation=False,
+            )
+
+            encoded_suffix = tokenizer.encode(
+                string_suffix,
+                add_special_tokens=False,
+                max_length=10**6,
+                truncation=False,
+            )
+
+            encoded = encoded_prefix + np.asarray(text_tokens).tolist() + encoded_suffix
+            codebook_dim = 9
+
             semantic_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
-            semantic_length = semantics_slice.shape[1]#sum([len(i[0]) for i in semantics])
+            semantic_length = semantics_slice.shape[1]
             tokens = (
                 encoded
                 + [semantic_token_id] * semantic_length
                 + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
             )
             prompt_length = len(encoded)
-            codes = [[CODEBOOK_PAD_TOKEN_ID] * prompt_length for _ in range(num_codebooks)]
-            #for segment in semantics:
-            for book_idx, book in zip(range(num_codebooks), semantics_slice):
-                for j in book:
-                    codes[book_idx].append(int(j) + 1)
 
+            codes = [[CODEBOOK_PAD_TOKEN_ID] * prompt_length for _ in range(codebook_dim)]
+            for book_idx, book in zip(range(codebook_dim), semantics_slice):
+                for j in book:
+                    codes[book_idx].append(int(j))
             for book in codes:
                 book.extend([CODEBOOK_PAD_TOKEN_ID] * 1)
+
             tokens = [tokens] + codes
             tokens = np.asarray(tokens)
-            labels = tokens.copy()
-            labels[1:, :prompt_length] = -100
-            tokens = tokens[:, :-1]
-            labels = labels[:, 1:]
+
             i+=1
             example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
-                            'inputs': tf.train.Feature(
+                            'tokens': tf.train.Feature(
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(tokens).numpy()])),
-                            'targets': tf.train.Feature(
-                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(labels).numpy()])),
+                            'prompt_length':tf.train.Feature(
+                               int64_list=tf.train.Int64List(value=[prompt_length])
+                            )
                             #'speaker':tf.train.Feature(bytes_list=tf.train.BytesList(value=[item["speaker"].encode('utf-8')]))
                         }
                     )

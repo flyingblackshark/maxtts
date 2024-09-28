@@ -172,7 +172,7 @@ if __name__ == "__main__":
             semantics_slice = semantics[k][:,:n_frames]
 
             string_prefix = "<|im_start|>user\n"
-            string_suffix = "<|im_end|><|im_start|>assistant\n"
+            string_suffix = "<|im_end|><|im_start|>smtc\n"
 
             encoded_prefix = tokenizer.encode(
                 string_prefix,
@@ -202,7 +202,7 @@ if __name__ == "__main__":
             #for segment in semantics:
             for book_idx, book in zip(range(codebook_dim), semantics_slice):
                 for j in book:
-                    codes[book_idx].append(int(j) + 1)
+                    codes[book_idx].append(int(j))
 
             for book in codes:
                 book.extend([CODEBOOK_PAD_TOKEN_ID] * 1)

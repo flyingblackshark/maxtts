@@ -230,7 +230,7 @@ class PadToMaxLength(grain.MapTransform):
     data["inputs_position"] = np.arange(data["inputs"].shape[0], dtype=np.int32)
     data["targets_segmentation"] = np.ones(data["targets"].shape[0], dtype=np.int32)
     data["targets_position"] = np.arange(data["targets"].shape[0], dtype=np.int32)
-    data["prompt_length"] = (np.arange(data["targets"].shape[0], dtype=np.int32) > data["prompt_length"]).astype(np.int32)
+    data["prompt_length"] = (data["inputs_position"] >= data["prompt_length"]).astype(np.int32)
     for key, _ in data.items():
       data[key] = _pad(data[key], self.max_length)
     return data

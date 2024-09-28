@@ -37,7 +37,7 @@ def encode_tokens(
     num_codebooks=9,
 ):
     #string = clean_text(string)
-    string = f"<|im_start|>user\n{string}<|im_end|><|im_start|>assistant\n"
+    string = f"<|im_start|>user\n{string}<|im_end|><|im_start|>smtc\n"
 
     new_tokens = tokenizer.encode(
         string,
