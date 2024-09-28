@@ -424,7 +424,7 @@ class Decoder(nn.Module):
       )(codebook_y)
 
     codebook_logits = jnp.reshape(
-            codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],codebook_dim,codebook_logits.shape[2]//codebook_dim)# "b n (c d) -> b n c d", c=self.config.
+            codebook_logits,(codebook_logits.shape[0],codebook_logits.shape[1],codebook_dim,codebook_size) # "b n (c d) -> b n c d", c=self.config.
       )
     codebook_logits = nn.with_logical_constraint(codebook_logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
     codebook_logits = codebook_logits.astype(jnp.float32)
