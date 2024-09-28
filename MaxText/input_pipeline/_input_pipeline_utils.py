@@ -148,12 +148,11 @@ class HFDataSource(grain.RandomAccessDataSource):
 class ParseAndNormalizeFeatures(grain.MapTransform):
   def map(self, features):
     parsed = tf.io.parse_example(features, {
-      "inputs": tf.io.FixedLenFeature([], dtype=tf.string),
-      "targets": tf.io.FixedLenFeature([], dtype=tf.string),
+      "tokens": tf.io.FixedLenFeature([], dtype=tf.string),
       "prompt_length": tf.io.FixedLenFeature([], dtype=tf.int64)
       })
-    inputs = tf.io.parse_tensor(parsed["inputs"],tf.int64).numpy().transpose(1,0)
-    targets = tf.io.parse_tensor(parsed["targets"],tf.int64).numpy().transpose(1,0)
+    inputs = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[:-1]
+    targets = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[1:]
     prompt_length = parsed["prompt_length"].numpy()
 
     return {
