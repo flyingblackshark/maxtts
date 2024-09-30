@@ -32,8 +32,78 @@ with_logical_partitioning = nn.with_logical_partitioning
 
 _MAX_WAVELENGTH = 10_000
 
-
 class Embed(nn.Module):
+  """A parameterized function from integers [0, n) to d-dimensional vectors.
+
+  Attributes:
+    num_embeddings: number of embeddings.
+    features: number of feature dimensions for each embedding.
+    dtype: the dtype of the embedding vectors (default: float32).
+    embedding_init: embedding initializer.
+  """
+
+  # pylint: disable=attribute-defined-outside-init
+  config: Config
+  num_embeddings: int
+  features: int
+  cast_input_dtype: Optional[DType] = None
+  dtype: DType = jnp.float32
+  attend_dtype: Optional[DType] = None
+  embedding_init: Initializer = default_embed_init
+
+  def setup(self):
+    self.embedding = self.param(
+        "embedding",
+        with_logical_partitioning(self.embedding_init, ("vocab", "embed")),
+        (self.num_embeddings, self.features),
+        self.config.weight_dtype,
+    )
+
+  def __call__(self, inputs: Array) -> Array:
+    """Embeds the inputs along the last dimension.
+
+    Args:
+      inputs: input data, all dimensions are considered batch dimensions.
+
+    Returns:
+      Output which is embedded input data.  The output shape follows the input,
+      with an additional `features` dimension appended.
+    """
+    cfg = self.config
+    if self.cast_input_dtype:
+      inputs = inputs.astype(self.cast_input_dtype)
+    if not jnp.issubdtype(inputs.dtype, jnp.integer):
+      raise ValueError("Input type must be an integer or unsigned integer.")
+
+    if cfg.use_iota_embed:
+      iota = lax.iota(jnp.int32, self.num_embeddings)
+      one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
+      output = jnp.dot(one_hot, jnp.asarray(self.embedding, self.dtype))
+    else:
+      output = jnp.asarray(self.embedding, self.dtype)[inputs]
+    output = nn.with_logical_constraint(
+        output, ("activation_embed_and_logits_batch", "activation_length", "activation_embed")
+    )
+    return output
+
+  def attend(self, query: Array) -> Array:
+    """Attend over the embedding using a query array.
+
+    Args:
+      query: array with last dimension equal the feature depth `features` of the
+        embedding.
+
+    Returns:
+      An array with final dim `num_embeddings` corresponding to the batched
+      inner-product of the array of query vectors against each embedding.
+      Commonly used for weight-sharing between embeddings and logit transform
+      in NLP models.
+    """
+    dtype = self.attend_dtype if self.attend_dtype is not None else self.dtype
+    return jnp.dot(query, jnp.asarray(self.embedding, jnp.bfloat16).T)
+
+
+class CodebookEmbed(nn.Module):
   """A parameterized function from integers [0, n) to d-dimensional vectors.
 
   Attributes:
@@ -205,3 +275,25 @@ class PositionalEmbedding(nn.Module):
     # signal = jnp.pad(signal, [[0, jnp.mod(self.embedding_dims, 2)]])
     position_embedding = signal.astype(jnp.float32)
     return input_embedding + position_embedding
+  
+class CodebookPositionalEmbedding(nn.Module):
+  embedding_dims: int
+  max_wavelength: int = _MAX_WAVELENGTH
+
+  def __call__(
+      self,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+      input_embedding: jax.Array,
+      position: jax.Array,
+  ) -> jax.Array:
+    num_timescales = self.embedding_dims // 2
+    log_timescale_increment = jnp.log(float(self.max_wavelength)) / jnp.maximum(
+        jnp.asarray(num_timescales, dtype=jnp.float32) - 1, 1
+    )
+    inv_timescales = jnp.exp(jnp.arange(num_timescales, dtype=jnp.float32) * -log_timescale_increment)
+    position = position[:, :, jnp.newaxis]
+    inv_timescales = inv_timescales[jnp.newaxis, jnp.newaxis, :]
+    scaled_time = position * inv_timescales
+    signal = jnp.concatenate([jnp.sin(scaled_time), jnp.cos(scaled_time)], axis=-1)
+    # signal = jnp.pad(signal, [[0, jnp.mod(self.embedding_dims, 2)]])
+    position_embedding = signal.astype(jnp.float32)
+    return input_embedding + position_embedding[:, :, jnp.newaxis]
