@@ -265,20 +265,20 @@ class CodebookDecoder(nn.Module):
     assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
 
     # [batch, length , codebook_dim] -> [batch, length, emb_dim]
-    codebooks = decoder_input_tokens[:,1:,1:-1]
-    codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
+    codebooks = decoder_input_tokens[:,:,1:-1]
+    #codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
     codebook_embeddings = self.shared_embedding(codebooks.astype("int32"))
     y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
     b,s,n,d = y.shape
     y = jnp.reshape(y,(b*s,n,d))
     y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
     y = y.astype(cfg.dtype)
-    decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,codebook_dim,dtype=jnp.int32),0),repeats=b*s,axis=0)
+    decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
 
     if decoder_segment_ids is not None:
       decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
       decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
-      decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=codebook_dim,axis=1)
+      decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=y.shape[1],axis=1)
     if cfg.use_untrainable_positional_embedding:
       y = PositionalEmbedding(cfg.base_emb_dim)(y, decoder_positions)
 
@@ -723,7 +723,7 @@ class Transformer(nn.Module):
     )
     codebook_logits = self.codebook_decoder(
         decoder_input_tokens=decoder_input_tokens,
-        decoder_hidden_state=hidden_states,
+        decoder_hidden_states=hidden_states,
         decoder_positions=decoder_positions,
         decoder_segment_ids=decoder_segment_ids,
         deterministic=not enable_dropout,

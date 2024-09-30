@@ -153,6 +153,7 @@ class ParseAndNormalizeFeatures(grain.MapTransform):
       })
     inputs = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[:-1]
     targets = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[1:]
+    #codebook_targets = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[:-1]
     prompt_length = parsed["prompt_length"].numpy()
 
     return {
