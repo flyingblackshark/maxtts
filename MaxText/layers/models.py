@@ -661,8 +661,34 @@ class Decoder(nn.Module):
 
     return logits,y
 
-
 class Transformer(nn.Module):
+  config: Config
+  mesh: Mesh
+  quant: Quant
+  def setup(self):
+    self.base_model = BaseTransformer(self.config,self.mesh,self.quant)
+    self.codebook_model = CodebookTransformer(self.config,self.mesh,self.quant)
+  def __call__(self,
+      decoder_input_tokens,
+      decoder_positions,
+      decoder_segment_ids=None,
+      enable_dropout=True,
+      model_mode=common_types.MODEL_MODE_TRAIN):
+    logits,hidden_states = self.base_model(decoder_input_tokens=decoder_input_tokens,
+      decoder_positions=decoder_positions,
+      decoder_segment_ids=decoder_segment_ids,
+      enable_dropout=enable_dropout,
+      model_mode=model_mode)
+    codebook_logits = self.codebook_model(decoder_input_tokens=decoder_input_tokens,
+      decoder_positions=decoder_positions,
+      decoder_hidden_states=hidden_states,
+      decoder_segment_ids=decoder_segment_ids,
+      enable_dropout=enable_dropout,
+      model_mode=model_mode)
+    return logits,codebook_logits
+
+
+class BaseTransformer(nn.Module):
   """An decoder-only Transformer model."""
 
   # Make new attributes required, so that all Transformer dependencies (train, decode, compile, etc) will error instead of silently use defaults.
@@ -685,18 +711,7 @@ class Transformer(nn.Module):
         name="token_embedder",
         config=cfg,
     )
-    self.codebook_embedding = Embed(
-        num_embeddings=cfg.vocab_size,
-        features=cfg.emb_dim,
-        dtype=cfg.dtype,
-        attend_dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
-        embedding_init=nn.initializers.normal(stddev=1.0),
-        name="codebook_token_embedder",
-        config=cfg,
-    )
-
     self.decoder = Decoder(config=cfg, shared_embedding=self.shared_embedding, mesh=mesh, quant=self.quant)
-    self.codebook_decoder = CodebookDecoder(config=cfg, shared_embedding=self.codebook_embedding, mesh=mesh, quant=self.quant)
 
   def __call__(
       self,
@@ -721,9 +736,53 @@ class Transformer(nn.Module):
         deterministic=not enable_dropout,
         model_mode=model_mode,
     )
+    return logits,hidden_states
+class CodebookTransformer(nn.Module):
+  """An decoder-only Transformer model."""
+
+  # Make new attributes required, so that all Transformer dependencies (train, decode, compile, etc) will error instead of silently use defaults.
+  # pylint: disable=attribute-defined-outside-init
+  config: Config
+  mesh: Mesh
+  quant: Quant
+
+  def setup(self):
+    """Initialize shared_embedding & decoder layers."""
+
+    cfg = self.config
+    mesh = self.mesh
+    self.codebook_embedding = Embed(
+        num_embeddings=cfg.vocab_size,
+        features=cfg.emb_dim,
+        dtype=cfg.dtype,
+        attend_dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
+        embedding_init=nn.initializers.normal(stddev=1.0),
+        name="codebook_token_embedder",
+        config=cfg,
+    )
+
+    self.codebook_decoder = CodebookDecoder(config=cfg, shared_embedding=self.codebook_embedding, mesh=mesh, quant=self.quant)
+
+  def __call__(
+      self,
+      decoder_input_tokens,
+      decoder_hidden_states,
+      decoder_positions,
+      decoder_segment_ids=None,
+      enable_dropout=True,
+      model_mode=common_types.MODEL_MODE_TRAIN,
+  ):
+    """Applies Transformer decoder-branch on encoded-input and target."""
+
+    if decoder_segment_ids is not None and model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE:
+      raise ValueError(
+          f"During autoregressive decoding we assume the tokens are in the active sequence"
+          f" which is always {common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR}."
+      )
+
     codebook_logits = self.codebook_decoder(
         decoder_input_tokens=decoder_input_tokens,
-        decoder_hidden_states=hidden_states,
+        decoder_hidden_states=decoder_hidden_states,
         decoder_positions=decoder_positions,
         decoder_segment_ids=decoder_segment_ids,
         deterministic=not enable_dropout,
@@ -731,4 +790,4 @@ class Transformer(nn.Module):
     )
 
 
-    return logits,codebook_logits
+    return codebook_logits
