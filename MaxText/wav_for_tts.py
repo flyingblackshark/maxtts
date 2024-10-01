@@ -26,7 +26,7 @@ CODEBOOK_PAD_TOKEN_ID = 0
 def create_pair(semantics,text_tokens,n_frames,tokenizer):
     semantics_slice = semantics[:,:n_frames]
     string_prefix = "<|im_start|>user\n"
-    string_suffix = "<|im_end|><|im_start|>smtc\n"
+    string_suffix = "<|im_end|><|im_start|>assistant\n"
 
     encoded_prefix = tokenizer.encode(
         string_prefix,
