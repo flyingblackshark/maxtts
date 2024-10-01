@@ -172,7 +172,7 @@ if __name__ == "__main__":
             semantics_slice = semantics[k][:,:n_frames]
 
             string_prefix = "<|im_start|>user\n"
-            string_suffix = "<|im_end|><|im_start|>smtc\n"
+            string_suffix = "<|im_end|><|im_start|>assistant\n"
 
             encoded_prefix = tokenizer.encode(
                 string_prefix,
