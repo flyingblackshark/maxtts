@@ -96,7 +96,6 @@ def encode_tokens(
 def main(config):
     engine = maxengine.MaxEngine(config)
     params = engine.load_params()
-
     text = config.prompt
     #metadata = engine.get_tokenizer()
 

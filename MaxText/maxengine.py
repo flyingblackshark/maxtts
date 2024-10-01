@@ -69,36 +69,49 @@ class MaxEngine(engine_api.Engine):
 
     # Model and Optimizer definition
     quant = quantizations.configure_quantization(config)
-    self.model = models.Transformer(config, mesh=self._mesh, quant=quant)
+    self.base_model = models.BaseTransformer(config, mesh=self._mesh, quant=quant)
+    self.codebook_model = models.CodebookTransformer(config, mesh=self._mesh, quant=quant)
+    #self.model = models.Transformer(config, mesh=self._mesh, quant=quant)
     self.replicated_sharding = jax.sharding.NamedSharding(self._mesh, P(None))
 
-    self.abstract_params = None
-    self.kv_cache_annotations = None
-    self.kv_cache_annotations_named = None
-    self.kv_cache_shardings = None
+    self.base_abstract_params = None
+    self.codebook_abstract_params = None
+    self.base_kv_cache_annotations = None
+    self.base_kv_cache_annotations_named = None
+    self.base_kv_cache_shardings = None
+    self.codebook_kv_cache_annotations = None
+    self.codebook_kv_cache_annotations_named = None
+    self.codebook_kv_cache_shardings = None
     self.state_mesh_annotations = None
 
   def load_params(self, *args, **kwargs) -> Params:
     """Load Parameters, typically from GCS"""
     # pylint: disable=unused-argument
 
-    if self.model.quant and self.config.checkpoint_is_quantized:
-      print("Loading from the quantized checkpoint...")
-      self.model.quant.quant_mode = quantizations.get_quant_mode("serve")
+    # if self.model.quant and self.config.checkpoint_is_quantized:
+    #   print("Loading from the quantized checkpoint...")
+    #   self.model.quant.quant_mode = quantizations.get_quant_mode("serve")
 
-    state, self.state_mesh_annotations = max_utils.setup_decode_state(self.model, self.config, self.rng, self._mesh, None)
-    self.abstract_params = jax.tree_util.tree_map(
-        lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), state.params
+    base_state, self.state_mesh_annotations = max_utils.setup_decode_state(self.base_model, self.config, self.rng, self._mesh, None)
+    codebook_state, self.state_mesh_annotations = max_utils.setup_decode_state(self.codebook_model, self.config, self.rng, self._mesh, None)
+    self.base_abstract_params = jax.tree_util.tree_map(
+        lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), base_state.params
     )
-    self.kv_cache_annotations = max_utils.get_kv_cache_annotations(self.model, self.config, self.rng, self._mesh)
-    self.kv_cache_shardings = jax.tree_util.tree_map(
-      lambda x: jax.sharding.NamedSharding(self._mesh, x), self.kv_cache_annotations)
-
-    if self.model.quant and not self.config.checkpoint_is_quantized:
-      params = self.quantize_params(state)
-    else:
-      params = state.params
+    self.codebook_abstract_params = jax.tree_util.tree_map(
+        lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), codebook_state.params
+    )
+    self.base_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.base_model, self.config, self.rng, self._mesh)
+    self.base_kv_cache_shardings = jax.tree_util.tree_map(
+      lambda x: jax.sharding.NamedSharding(self._mesh, x), self.base_kv_cache_annotations)
+    self.codebook_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.codebook_model, self.config, self.rng, self._mesh)
+    self.codebook_kv_cache_shardings = jax.tree_util.tree_map(
+      lambda x: jax.sharding.NamedSharding(self._mesh, x), self.codebook_kv_cache_annotations)
+    # if self.model.quant and not self.config.checkpoint_is_quantized:
+    #   params = self.quantize_params(state)
+    # else:
+    #   params = state.params
     max_utils.print_mem_stats('After load_params')
+    params = (base_state.params,codebook_state.params)
     return params
 
   def quantize_params(self, state):
@@ -152,7 +165,7 @@ class MaxEngine(engine_api.Engine):
     """
     if existing_prefix:
       raise ValueError("We don't know what to do with existing_prefix")
-
+    base_params , codebook_params = params
     input_tokens = jnp.expand_dims(padded_tokens, 0)  # [BATCH, SEQUENCE]
     positions = jnp.expand_dims(jnp.arange(0, input_tokens.shape[1]), 0)
 
@@ -162,8 +175,8 @@ class MaxEngine(engine_api.Engine):
     sequence_indicator = jnp.expand_dims(one_d_output, 0)
 
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
-      (flat_logits,codebook_flat_logits),new_vars = self.model.apply(
-          params,
+      (flat_logits,hidden_states),base_new_vars = self.base_model.apply(
+          base_params,
           input_tokens,
           positions,
           decoder_segment_ids=sequence_indicator,
@@ -180,8 +193,21 @@ class MaxEngine(engine_api.Engine):
     )
     
     selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
+
+    with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
+      codebook_logits,codebook_new_vars = self.codebook_model.apply(
+          codebook_params,
+          input_tokens,
+          positions,
+          hidden_states,
+          decoder_segment_ids=sequence_indicator,
+          enable_dropout=False,
+          model_mode=common_types.MODEL_MODE_PREFILL,
+          rngs={"params": self.rng},
+          mutable=["cache"],
+      )
     codebook_selected_logits = jax.lax.dynamic_slice(
-        codebook_flat_logits, (0, true_length - 1, 0,0), (codebook_flat_logits.shape[0], 1, codebook_flat_logits.shape[2],codebook_flat_logits.shape[3])
+        codebook_logits, (0, true_length - 1, 0,0), (codebook_logits.shape[0], 1, codebook_logits.shape[2],codebook_logits.shape[3])
     )
     codebook_selected_logits = jax.lax.with_sharding_constraint(codebook_selected_logits, self.replicated_sharding)
     # sampling first token
@@ -224,7 +250,7 @@ class MaxEngine(engine_api.Engine):
 
     return {
         "logits": selected_logits,
-        "cache": new_vars["cache"],
+        "cache": base_new_vars["cache"],
         "next_pos": next_pos,
         "generated_tokens": generated_tokens,
         "tokens": first_generated_token
