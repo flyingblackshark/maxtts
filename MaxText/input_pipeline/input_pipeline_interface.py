@@ -67,6 +67,9 @@ class SyntheticDataIterator:
     output["targets_segmentation"] = jax.numpy.ones(
         (config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32
     )
+    output["prompt_length"] = jax.numpy.ones(
+        (config.global_batch_size_to_load, config.max_target_length), dtype=jax.numpy.int32
+    )
     return output
 
 
