@@ -497,6 +497,42 @@ def init_initial_state(model, tx, config, is_training, key):
   return init_decode_state(model.apply, model_vars)
 
 
+# def setup_both_decode_state(model, config, rng, mesh, checkpoint_manager):
+#   """Setup decode state by loading params from a checkpoint.
+#   Args:
+#     model: the flax model to initialize
+#     config: config object
+#     rng: jax.prng key
+#     mesh: jax.devices() mesh
+#     checkpoint_manager: Checkpoint manager
+
+#   Returns:
+#     state: state with decode params loaded from the checkpoint
+#     state_mesh_annotations: the mesh annotations for the state
+#   """
+#   if not config.load_parameters_path:
+#     # generate random params
+#     max_logging.log(
+#         "No decode checkpoint specified - generating random weights."
+#     )
+#     state, state_mesh_annotations, _ = setup_initial_state(
+#       model, None, None, config, rng, mesh, checkpoint_manager, False
+#       )
+#   else:
+#     # Load params from checkpoint
+#     max_logging.log(f"Loading decode params from {config.load_parameters_path}")
+#     unboxed_abstract_state, state_mesh_annotations, _ = (
+#       get_abstract_state(model, None, config, rng, mesh, False)
+#       )
+#     with nn_partitioning.axis_rules(config.logical_axis_rules):
+#       params = checkpointing.load_params_from_path(
+#         config.load_parameters_path,
+#         unboxed_abstract_state.params
+#         )
+#     state = init_decode_state(None, params)
+
+#   state = unbox_logicallypartioned(state)
+#   return state, state_mesh_annotations
 
 def setup_decode_state(model, config, rng, mesh, checkpoint_manager):
   """Setup decode state by loading params from a checkpoint.

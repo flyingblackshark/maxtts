@@ -69,6 +69,7 @@ class MaxEngine(engine_api.Engine):
 
     # Model and Optimizer definition
     quant = quantizations.configure_quantization(config)
+    self.temp_model = models.Transformer(config, mesh=self._mesh, quant=quant)
     self.base_model = models.BaseTransformer(config, mesh=self._mesh, quant=quant)
     self.codebook_model = models.CodebookTransformer(config, mesh=self._mesh, quant=quant)
     #self.model = models.Transformer(config, mesh=self._mesh, quant=quant)
@@ -82,7 +83,8 @@ class MaxEngine(engine_api.Engine):
     self.codebook_kv_cache_annotations = None
     self.codebook_kv_cache_annotations_named = None
     self.codebook_kv_cache_shardings = None
-    self.state_mesh_annotations = None
+    self.base_state_mesh_annotations = None
+    self.codebook_state_mesh_annotations = None
 
   def load_params(self, *args, **kwargs) -> Params:
     """Load Parameters, typically from GCS"""
@@ -92,8 +94,12 @@ class MaxEngine(engine_api.Engine):
     #   print("Loading from the quantized checkpoint...")
     #   self.model.quant.quant_mode = quantizations.get_quant_mode("serve")
 
-    base_state, self.state_mesh_annotations = max_utils.setup_decode_state(self.base_model, self.config, self.rng, self._mesh, None)
-    codebook_state, self.state_mesh_annotations = max_utils.setup_decode_state(self.codebook_model, self.config, self.rng, self._mesh, None)
+    main_state, _ = max_utils.setup_decode_state(self.temp_model, self.config, self.rng, self._mesh, None)
+    base_state, self.base_state_mesh_annotations = max_utils.setup_decode_state(self.base_model, self.config, self.rng, self._mesh, None)
+    base_state = base_state.replace(params={"params":main_state.params["params"]["base_model"]})
+    codebook_state, self.codebook_state_mesh_annotations = max_utils.setup_decode_state(self.codebook_model, self.config, self.rng, self._mesh, None)
+    codebook_state = codebook_state.replace(params={"params":main_state.params["params"]["codebook_model"]})
+    del self.temp_model 
     self.base_abstract_params = jax.tree_util.tree_map(
         lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), base_state.params
     )
@@ -142,7 +148,7 @@ class MaxEngine(engine_api.Engine):
     self.model.quant.quant_mode = quantizations.get_quant_mode("serve")
     return params
 
-  @functools.partial(jax.jit, static_argnums=(0,))
+  @functools.partial(jax.jit, static_argnums=(0))
   def prefill(
       self,
       *,
@@ -185,16 +191,6 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-    codebook_dim = 9
-    next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
-    generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
-    selected_logits = jax.lax.dynamic_slice(
-        flat_logits, (0, true_length - 1, 0), (flat_logits.shape[0], 1, flat_logits.shape[2])
-    )
-    
-    selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
-
-    with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
       codebook_logits,codebook_new_vars = self.codebook_model.apply(
           codebook_params,
           input_tokens,
@@ -206,6 +202,15 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
+    codebook_dim = 9
+    next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
+    generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
+    selected_logits = jax.lax.dynamic_slice(
+        flat_logits, (0, true_length - 1, 0), (flat_logits.shape[0], 1, flat_logits.shape[2])
+    )
+    
+    selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
+
     codebook_selected_logits = jax.lax.dynamic_slice(
         codebook_logits, (0, true_length - 1, 0,0), (codebook_logits.shape[0], 1, codebook_logits.shape[2],codebook_logits.shape[3])
     )
