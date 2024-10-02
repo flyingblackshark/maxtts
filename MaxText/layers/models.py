@@ -262,18 +262,24 @@ class CodebookDecoder(nn.Module):
     codebook_size = 1024
     cfg = self.config
     mesh = self.mesh
-    assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
-
-    # [batch, length , codebook_dim] -> [batch, length, emb_dim]
-    codebooks = decoder_input_tokens[:,:,1:-1]
-    #codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
-    codebook_embeddings = self.shared_embedding(codebooks.astype("int32"))
-    y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
-    b,s,n,d = y.shape
-    y = jnp.reshape(y,(b*s,n,d))
-    y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
-    y = y.astype(cfg.dtype)
-    decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
+    
+    if model_mode == common_types.MODEL_MODE_TRAIN:
+      assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
+      # [batch, length , codebook_dim] -> [batch, length, emb_dim]
+      codebooks = decoder_input_tokens[:,:,1:-1]
+      #codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
+      codebook_embeddings = self.shared_embedding(codebooks.astype("int32"))
+      y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
+      b,s,n,d = y.shape
+      y = jnp.reshape(y,(b*s,n,d))
+      y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
+      y = y.astype(cfg.dtype)
+      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
+    elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+      y = decoder_hidden_states[:,:, jnp.newaxis]
+      b,s,n,d = y.shape
+      y = jnp.reshape(y,(b*s,n,d))
+      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
 
     if decoder_segment_ids is not None:
       decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
@@ -415,7 +421,10 @@ class CodebookDecoder(nn.Module):
       )(
           y
       )  # We do not quantize the logits matmul.
-    logits = jnp.reshape(logits,(b,s,codebook_dim,codebook_size))
+    if model_mode == common_types.MODEL_MODE_TRAIN:
+      logits = jnp.reshape(logits,(b,s,codebook_dim,codebook_size))
+    elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+      logits = jnp.reshape(logits,(b,s,1,codebook_size))
     logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
     logits = logits.astype(jnp.float32)
     return logits

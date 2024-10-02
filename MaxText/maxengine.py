@@ -112,6 +112,7 @@ class MaxEngine(engine_api.Engine):
     self.codebook_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.codebook_model, self.config, self.rng, self._mesh)
     self.codebook_kv_cache_shardings = jax.tree_util.tree_map(
       lambda x: jax.sharding.NamedSharding(self._mesh, x), self.codebook_kv_cache_annotations)
+    #self.codebook_zero_cache  = None
     # if self.model.quant and not self.config.checkpoint_is_quantized:
     #   params = self.quantize_params(state)
     # else:
@@ -179,7 +180,7 @@ class MaxEngine(engine_api.Engine):
     ones_to_keep = zero_to_n < true_length
     one_d_output = ones_to_keep * common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR
     sequence_indicator = jnp.expand_dims(one_d_output, 0)
-
+    codebook_dim = 9
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
       (flat_logits,hidden_states),base_new_vars = self.base_model.apply(
           base_params,
@@ -191,18 +192,25 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-      codebook_logits,codebook_new_vars = self.codebook_model.apply(
-          codebook_params,
-          input_tokens,
-          positions,
-          hidden_states,
-          decoder_segment_ids=sequence_indicator,
-          enable_dropout=False,
-          model_mode=common_types.MODEL_MODE_PREFILL,
-          rngs={"params": self.rng},
-          mutable=["cache"],
-      )
-    codebook_dim = 9
+      
+      codebook_new_logits = []
+      for i in range(codebook_dim):
+        codebook_logits,codebook_new_vars = self.codebook_model.apply(
+            codebook_params,
+            None,
+            i+1,
+            hidden_states,
+            decoder_segment_ids=sequence_indicator,
+            enable_dropout=False,
+            model_mode=common_types.MODEL_MODE_PREFILL,
+            rngs={"params": self.rng},
+            mutable=["cache"],
+        )
+        codebook_new_logits.append(codebook_logits)
+    codebook_new_logits = jnp.concatenate(codebook_new_logits,axis=-2)
+    # codebook_new_vars = jax.tree_map(lambda x:jnp.zeros(x.shape,x.dtype),codebook_new_vars)
+    # self.codebook_zero_cache = codebook_new_vars
+
     next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
     generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
     selected_logits = jax.lax.dynamic_slice(
@@ -212,7 +220,7 @@ class MaxEngine(engine_api.Engine):
     selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
 
     codebook_selected_logits = jax.lax.dynamic_slice(
-        codebook_logits, (0, true_length - 1, 0,0), (codebook_logits.shape[0], 1, codebook_logits.shape[2],codebook_logits.shape[3])
+        codebook_new_logits, (0, true_length - 1, 0,0), (codebook_new_logits.shape[0], 1, codebook_new_logits.shape[2],codebook_new_logits.shape[3])
     )
     codebook_selected_logits = jax.lax.with_sharding_constraint(codebook_selected_logits, self.replicated_sharding)
     # sampling first token
@@ -265,11 +273,12 @@ class MaxEngine(engine_api.Engine):
   def generate(self, params: Params, decode_state: DecodeState) -> Tuple[DecodeState, engine_api.ResultTokens]:
     """Run one generate step"""
     previous_token = decode_state["tokens"]
-
+    base_params , codebook_params = params
+    codebook_dim = 9
     # run one step generation
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
-      (out_logits,out_codebook_logits), new_vars = self.model.apply(
-          params | {"cache": decode_state["cache"]},
+      (out_logits,hidden_state), new_vars = self.base_model.apply(
+          base_params | {"cache": decode_state["cache"]},
           previous_token,
           decode_state["next_pos"],
           enable_dropout=False,
@@ -277,10 +286,28 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-    codebook_dim = 9
+    
     out_logits = jax.lax.with_sharding_constraint(out_logits, self.replicated_sharding)
-    out_codebook_logits = jax.lax.with_sharding_constraint(out_codebook_logits, self.replicated_sharding)
-    new_cache = jax.lax.with_sharding_constraint(new_vars["cache"], self.kv_cache_shardings)
+    out_codebook_logits_res = []
+    #codebook_cache = self.codebook_zero_cache
+    #padding_value = self.config.per_device_batch_size * jax.device_count() - hidden_state.shape[0]
+    #hidden_state_arr = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
+    for i in range(codebook_dim):
+        out_codebook_logits, _ = self.codebook_model.apply(
+          codebook_params,
+          None,
+          i+1,#decode_state["next_pos"],
+          hidden_state,
+          enable_dropout=False,
+          model_mode=common_types.MODEL_MODE_PREFILL,
+          rngs={"params": self.rng},
+          mutable=["cache"],
+        )
+        #codebook_cache = new_vars
+        out_codebook_logits_res.append(out_codebook_logits)
+    out_codebook_logits_res = jnp.concatenate(out_codebook_logits_res,axis=-2)
+    out_codebook_logits_res = jax.lax.with_sharding_constraint(out_codebook_logits_res, self.replicated_sharding)
+    new_cache = jax.lax.with_sharding_constraint(new_vars["cache"], self.base_kv_cache_shardings)
 
     # sampling tokens
     new_token = inference_utils.sampling(
@@ -294,7 +321,7 @@ class MaxEngine(engine_api.Engine):
     codebook_new_tokens = []
     for i in range(codebook_dim):
       codebook_new_token = inference_utils.sampling(
-        out_codebook_logits[:,:,i],
+        out_codebook_logits_res[:,:,i],
         self.rng,
         self.config.decode_sampling_strategy,
         topk=self.config.decode_sampling_top_k,
@@ -402,7 +429,7 @@ class MaxEngine(engine_api.Engine):
     inserted_generated_tokens = jax.lax.with_sharding_constraint(inserted_generated_tokens, self.replicated_sharding)
     inserted_next_pos = jax.lax.with_sharding_constraint(inserted_next_pos, self.replicated_sharding)
     inserted_tokens = jax.lax.with_sharding_constraint(inserted_tokens, self.replicated_sharding)
-    inserted_cache = jax.lax.with_sharding_constraint(inserted_cache, self.kv_cache_shardings)
+    inserted_cache = jax.lax.with_sharding_constraint(inserted_cache, self.base_kv_cache_shardings)
 
     return {
         "logits": inserted_logits,
@@ -440,10 +467,15 @@ class MaxEngine(engine_api.Engine):
           (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length),
           dtype=jnp.int32,
       )
-      _, cache = self.model.apply(
+      x3 = jnp.ones(
+          (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length,self.config.base_emb_dim),
+          dtype=jnp.int32,
+      )
+      _, cache = self.base_model.apply(
           abstract_params,
           x,
           x2,
+          x3,
           decoder_segment_ids=jnp.zeros(x2.shape, dtype=jnp.int32) + common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR,
           enable_dropout=False,
           model_mode=common_types.MODEL_MODE_PREFILL,
@@ -463,7 +495,7 @@ class MaxEngine(engine_api.Engine):
       }
 
     with nn_partitioning.axis_rules(self.config.logical_axis_rules):
-      abstract_outputs = jax.eval_shape(init, self.abstract_params)
+      abstract_outputs = jax.eval_shape(init, self.base_abstract_params)
     logical_annotations = nn.get_partition_spec(abstract_outputs)
 
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
