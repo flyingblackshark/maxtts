@@ -25,8 +25,8 @@ import pyconfig
 import sys
 from transformers import AutoTokenizer
 import jax.numpy as jnp
-#import dac_jax
-# soundfile as sf
+import dac_jax
+import soundfile as sf
 from jax.experimental.compilation_cache import compilation_cache as cc
 cc.set_cache_dir("./jax_cache")
 CODEBOOK_PAD_TOKEN_ID = 0
@@ -129,19 +129,19 @@ def main(config):
     results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
     results = jnp.stack(results,axis=0)[:,1:]   
 
-    # model, variables = dac_jax.load_model(model_type="44khz")
-    # @partial(jax.jit, static_argnums=(1, 2))
-    # def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
-    #     recons = model.apply(
-    #         variables,
-    #         codes,
-    #         scale,
-    #         length,
-    #         method="decode",
-    #     )
-    #     return recons
-    # audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0)- 1,None).squeeze((0,1) )
-    # sf.write("test.wav",audio_output,samplerate=44100)
+    model, variables = dac_jax.load_model(model_type="44khz")
+    @partial(jax.jit, static_argnums=(1, 2))
+    def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
+        recons = model.apply(
+            variables,
+            codes,
+            scale,
+            length,
+            method="decode",
+        )
+        return recons
+    audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0)- 1,None).squeeze((0,1) )
+    sf.write("test.wav",audio_output,samplerate=44100)
 
 def validate_config(config):
   assert config.load_full_state_path == "", (

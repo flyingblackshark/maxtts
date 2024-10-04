@@ -285,6 +285,8 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
       params,
       data["inputs"],
       data["inputs_position"],
+      data["targets"],
+      data["targets_position"],
       decoder_segment_ids=data["inputs_segmentation"],
       enable_dropout=config.enable_dropout if is_train else False,
       rngs={"dropout": rng1, "params": aqt_rng},
@@ -299,7 +301,7 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   xent = xent * (data["targets_segmentation"] != 0)
   codebook_dim = 9
   codebook_size = 1024
-  codebook_target = data["inputs"][:, :,1 : 1 + codebook_dim]
+  codebook_target = data["targets"][:, :,1 : 1 + codebook_dim]
   #Batch Length Codebook_Dim(=9)
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, codebook_size)
   xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)

@@ -274,17 +274,23 @@ class CodebookDecoder(nn.Module):
       y = jnp.reshape(y,(b*s,n,d))
       y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
       y = y.astype(cfg.dtype)
-      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
+      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,codebook_dim,dtype=jnp.int32),0),repeats=b*s,axis=0)
     elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
-      y = decoder_hidden_states[:,:, jnp.newaxis]
+      codebook_embeddings = self.shared_embedding(decoder_input_tokens.astype("int32"))
+      y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
+      #y = decoder_hidden_states[:,:, jnp.newaxis]
       b,s,n,d = y.shape
       y = jnp.reshape(y,(b*s,n,d))
-      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,y.shape[1],dtype=jnp.int32),0),repeats=b*s,axis=0)
-
-    if decoder_segment_ids is not None:
-      decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
-      decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
-      decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=y.shape[1],axis=1)
+      decoder_positions = jnp.expand_dims(jnp.arange(0,codebook_dim+1,dtype=jnp.int32),0)
+    if model_mode == common_types.MODEL_MODE_TRAIN:
+      if decoder_segment_ids is not None:
+        decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
+        decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
+        decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=codebook_dim,axis=1)
+    # elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+    #   if decoder_segment_ids is not None:
+    #     decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
+    #     decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=(b*s),axis=1)
     if cfg.use_untrainable_positional_embedding:
       y = PositionalEmbedding(cfg.base_emb_dim)(y, decoder_positions)
 
@@ -424,7 +430,7 @@ class CodebookDecoder(nn.Module):
     if model_mode == common_types.MODEL_MODE_TRAIN:
       logits = jnp.reshape(logits,(b,s,codebook_dim,codebook_size))
     elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
-      logits = jnp.reshape(logits,(b,s,1,codebook_size))
+      logits = jnp.reshape(logits,(b,s,codebook_dim+1,codebook_size))
     logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
     logits = logits.astype(jnp.float32)
     return logits
@@ -680,6 +686,8 @@ class Transformer(nn.Module):
   def __call__(self,
       decoder_input_tokens,
       decoder_positions,
+      codebook_input_tokens,
+      codebook_positions,
       decoder_hidden_states=None,
       decoder_segment_ids=None,
       enable_dropout=True,
@@ -689,8 +697,8 @@ class Transformer(nn.Module):
       decoder_segment_ids=decoder_segment_ids,
       enable_dropout=enable_dropout,
       model_mode=model_mode)
-    codebook_logits = self.codebook_model(decoder_input_tokens=decoder_input_tokens,
-      decoder_positions=decoder_positions,
+    codebook_logits = self.codebook_model(decoder_input_tokens=codebook_input_tokens,
+      decoder_positions=codebook_positions,
       decoder_hidden_states=hidden_states,
       decoder_segment_ids=decoder_segment_ids,
       enable_dropout=enable_dropout,

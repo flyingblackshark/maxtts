@@ -76,13 +76,13 @@ class MaxEngine(engine_api.Engine):
     self.replicated_sharding = jax.sharding.NamedSharding(self._mesh, P(None))
 
     self.base_abstract_params = None
-    self.codebook_abstract_params = None
+    #self.codebook_abstract_params = None
     self.base_kv_cache_annotations = None
     self.base_kv_cache_annotations_named = None
     self.base_kv_cache_shardings = None
-    self.codebook_kv_cache_annotations = None
-    self.codebook_kv_cache_annotations_named = None
-    self.codebook_kv_cache_shardings = None
+    # self.codebook_kv_cache_annotations = None
+    # self.codebook_kv_cache_annotations_named = None
+    # self.codebook_kv_cache_shardings = None
     self.base_state_mesh_annotations = None
     self.codebook_state_mesh_annotations = None
 
@@ -103,15 +103,15 @@ class MaxEngine(engine_api.Engine):
     self.base_abstract_params = jax.tree_util.tree_map(
         lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), base_state.params
     )
-    self.codebook_abstract_params = jax.tree_util.tree_map(
-        lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), codebook_state.params
-    )
+    # self.codebook_abstract_params = jax.tree_util.tree_map(
+    #     lambda x: jax.ShapeDtypeStruct(shape=x.shape, dtype=x.dtype, sharding=x.sharding), codebook_state.params
+    # )
     self.base_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.base_model, self.config, self.rng, self._mesh)
     self.base_kv_cache_shardings = jax.tree_util.tree_map(
       lambda x: jax.sharding.NamedSharding(self._mesh, x), self.base_kv_cache_annotations)
-    self.codebook_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.codebook_model, self.config, self.rng, self._mesh)
-    self.codebook_kv_cache_shardings = jax.tree_util.tree_map(
-      lambda x: jax.sharding.NamedSharding(self._mesh, x), self.codebook_kv_cache_annotations)
+    # self.codebook_kv_cache_annotations = max_utils.get_kv_cache_annotations(self.codebook_model, self.config, self.rng, self._mesh)
+    # self.codebook_kv_cache_shardings = jax.tree_util.tree_map(
+    #   lambda x: jax.sharding.NamedSharding(self._mesh, x), self.codebook_kv_cache_annotations)
     #self.codebook_zero_cache  = None
     # if self.model.quant and not self.config.checkpoint_is_quantized:
     #   params = self.quantize_params(state)
@@ -192,22 +192,46 @@ class MaxEngine(engine_api.Engine):
           rngs={"params": self.rng},
           mutable=["cache"],
       )
-      
-      codebook_new_logits = []
+      selected_hidden_size = jax.lax.dynamic_slice(
+        hidden_states, (0, true_length - 1, 0), (hidden_states.shape[0], 1, hidden_states.shape[2])
+      )
+      #codebook_new_logits = []
+      codebook_new_codes = []
       for i in range(codebook_dim):
+        zero_to_n = jnp.arange(0, codebook_dim+1)
+        ones_to_keep = zero_to_n < i+1
+        one_d_output = ones_to_keep * common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR
+        sequence_indicator = jnp.expand_dims(one_d_output, 0)
+        if len(codebook_new_codes) ==0:
+          padded_codebook_token = jnp.zeros((selected_hidden_size.shape[0],1,9))
+        else:
+          padding_size = codebook_dim - len(codebook_new_codes)
+          codebook_token = jnp.stack(codebook_new_codes)
+          codebook_token = codebook_token.transpose(1,0,2)
+          padded_codebook_token = jnp.pad(codebook_token,((0,0),(0,padding_size),(0,0)))
+          padded_codebook_token = padded_codebook_token.transpose(0,2,1)
         codebook_logits,codebook_new_vars = self.codebook_model.apply(
             codebook_params,
+            padded_codebook_token,
             None,
-            i+1,
-            hidden_states,
+            selected_hidden_size,
             decoder_segment_ids=sequence_indicator,
             enable_dropout=False,
             model_mode=common_types.MODEL_MODE_PREFILL,
             rngs={"params": self.rng},
             mutable=["cache"],
         )
-        codebook_new_logits.append(codebook_logits)
-    codebook_new_logits = jnp.concatenate(codebook_new_logits,axis=-2)
+        codebook_generated_token = inference_utils.sampling(
+          codebook_logits[:,:,i+1],
+          self.rng,
+          self.config.decode_sampling_strategy,
+          topk=self.config.decode_sampling_top_k,
+          nucleus_topp=self.config.decode_sampling_nucleus_p,
+          temperature=self.config.decode_sampling_temperature,
+        )
+        codebook_new_codes.append(codebook_generated_token)
+        #codebook_new_logits.append(codebook_logits)
+    codebook_generated_tokens = jnp.concatenate(codebook_new_codes,axis=-1)
     # codebook_new_vars = jax.tree_map(lambda x:jnp.zeros(x.shape,x.dtype),codebook_new_vars)
     # self.codebook_zero_cache = codebook_new_vars
 
@@ -219,10 +243,10 @@ class MaxEngine(engine_api.Engine):
     
     selected_logits = jax.lax.with_sharding_constraint(selected_logits, self.replicated_sharding)
 
-    codebook_selected_logits = jax.lax.dynamic_slice(
-        codebook_new_logits, (0, true_length - 1, 0,0), (codebook_new_logits.shape[0], 1, codebook_new_logits.shape[2],codebook_new_logits.shape[3])
-    )
-    codebook_selected_logits = jax.lax.with_sharding_constraint(codebook_selected_logits, self.replicated_sharding)
+    # codebook_selected_logits = jax.lax.dynamic_slice(
+    #     codebook_new_logits, (0, true_length - 1, 0,0), (codebook_new_logits.shape[0], 1, codebook_new_logits.shape[2],codebook_new_logits.shape[3])
+    # )
+    #codebook_selected_logits = jax.lax.with_sharding_constraint(codebook_selected_logits, self.replicated_sharding)
     # sampling first token
     first_generated_token = inference_utils.sampling(
         selected_logits,
@@ -232,18 +256,18 @@ class MaxEngine(engine_api.Engine):
         nucleus_topp=0.1,
         temperature=0.1,
     )
-    codebook_generated_tokens = []
-    for i in range(codebook_dim):
-      codebook_generated_token = inference_utils.sampling(
-        codebook_selected_logits[:,:,i],
-        self.rng,
-        self.config.decode_sampling_strategy,
-        topk=self.config.decode_sampling_top_k,
-        nucleus_topp=self.config.decode_sampling_nucleus_p,
-        temperature=self.config.decode_sampling_temperature,
-      )
-      codebook_generated_tokens.append(codebook_generated_token)
-    first_codebook_generated_token = jnp.stack(codebook_generated_tokens,axis=-1)
+    # codebook_generated_tokens = []
+    # for i in range(codebook_dim):
+    #   codebook_generated_token = inference_utils.sampling(
+    #     codebook_selected_logits[:,:,i],
+    #     self.rng,
+    #     self.config.decode_sampling_strategy,
+    #     topk=self.config.decode_sampling_top_k,
+    #     nucleus_topp=self.config.decode_sampling_nucleus_p,
+    #     temperature=self.config.decode_sampling_temperature,
+    #   )
+    #   codebook_generated_tokens.append(codebook_generated_token)
+    first_codebook_generated_token = jnp.expand_dims(codebook_generated_tokens,axis=1)
     first_generated_token = jnp.concatenate((jnp.expand_dims(first_generated_token,-1),first_codebook_generated_token),axis=-1)
     all_valid = jnp.ones(first_generated_token.shape, dtype=jnp.int8)
     result = engine_api.ResultTokens(
