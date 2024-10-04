@@ -176,39 +176,39 @@ class CodebookDecoder(nn.Module):
   quant: Optional[Quant] = None
 
   def get_decoder_layer(self):
-    if self.config.decoder_block == "default":
-      return DecoderLayer
-    elif self.config.decoder_block == "llama2":
-      from layers import llama2
+    # if self.config.decoder_block == "default":
+    #   return DecoderLayer
+    # elif self.config.decoder_block == "llama2":
+    #   from layers import llama2
 
-      return llama2.LlamaDecoderLayer
-    elif self.config.decoder_block == "mistral":
-      # TODO(ranran): update to Mistral with sliding window attention
-      from layers import mistral
+    #   return llama2.LlamaDecoderLayer
+    # elif self.config.decoder_block == "mistral":
+    #   # TODO(ranran): update to Mistral with sliding window attention
+    #   from layers import mistral
 
-      return mistral.MistralDecoderLayer
-    elif self.config.decoder_block == "gemma":
-      from layers import gemma
+    #   return mistral.MistralDecoderLayer
+    # elif self.config.decoder_block == "gemma":
+    #   from layers import gemma
 
-      return gemma.GemmaDecoderLayer
-    elif self.config.decoder_block == "gemma2":
-      from layers import gemma2
+    #   return gemma.GemmaDecoderLayer
+    # elif self.config.decoder_block == "gemma2":
+    #   from layers import gemma2
 
-      return gemma2.Gemma2DecoderLayer
-    elif self.config.decoder_block == "gpt3":
-      from layers import gpt3
+    #   return gemma2.Gemma2DecoderLayer
+    # elif self.config.decoder_block == "gpt3":
+    #   from layers import gpt3
 
-      return gpt3.Gpt3DecoderLayer
-    elif self.config.decoder_block == "simple":
-      from layers import simple_layer
+    #   return gpt3.Gpt3DecoderLayer
+    # elif self.config.decoder_block == "simple":
+    #   from layers import simple_layer
 
-      return simple_layer.SimpleDecoderLayer
-    elif self.config.decoder_block == "simple_mlp":
-      from layers import simple_layer
+    #   return simple_layer.SimpleDecoderLayer
+    # elif self.config.decoder_block == "simple_mlp":
+    from layers import simple_layer
 
-      return simple_layer.SimpleMlpDecoderLayer
-    else:
-      raise ValueError(f"Incorrect decoder_block name {self.config.decoder_block=}")
+    return simple_layer.SimpleMlpDecoderLayer
+    # else:
+    #   raise ValueError(f"Incorrect decoder_block name {self.config.decoder_block=}")
 
   def get_norm_layer(self):
     if self.config.decoder_block in ("default", "llama2", "mistral", "gemma", "gemma2", "simple", "simple_mlp"):
@@ -260,37 +260,40 @@ class CodebookDecoder(nn.Module):
   ):
     codebook_dim = 9
     codebook_size = 1024
+    #codebook_num_decoder_layers = 12
     cfg = self.config
     mesh = self.mesh
+
     
-    if model_mode == common_types.MODEL_MODE_TRAIN:
-      assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
-      # [batch, length , codebook_dim] -> [batch, length, emb_dim]
-      codebooks = decoder_input_tokens[:,:,1:-1]
-      #codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
-      codebook_embeddings = self.shared_embedding(codebooks.astype("int32"))
-      y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
-      b,s,n,d = y.shape
-      y = jnp.reshape(y,(b*s,n,d))
-      y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
-      y = y.astype(cfg.dtype)
-      decoder_positions = jnp.repeat(jnp.expand_dims(jnp.arange(0,codebook_dim,dtype=jnp.int32),0),repeats=b*s,axis=0)
-    elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
-      codebook_embeddings = self.shared_embedding(decoder_input_tokens.astype("int32"))
-      y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
-      #y = decoder_hidden_states[:,:, jnp.newaxis]
-      b,s,n,d = y.shape
-      y = jnp.reshape(y,(b*s,n,d))
-      decoder_positions = jnp.expand_dims(jnp.arange(0,codebook_dim+1,dtype=jnp.int32),0)
-    if model_mode == common_types.MODEL_MODE_TRAIN:
-      if decoder_segment_ids is not None:
-        decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
-        decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
-        decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=codebook_dim,axis=1)
+
+    # if model_mode == common_types.MODEL_MODE_TRAIN:
+    #   assert decoder_input_tokens.ndim == 3  # [batch, len, codebook_dim]
+    #   # [batch, length , codebook_dim] -> [batch, length, emb_dim]
+    #   codebooks = decoder_input_tokens[:,:,1:-1]
+    #   #codebooks = jnp.pad(codebooks, ((0,0),(0, 1),(0,0)))
+    #   codebook_embeddings = self.shared_embedding(codebooks.astype("int32"))
+    #   y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
+    #   b,s,n,d = y.shape
+    #   y = jnp.reshape(y,(b*s,n,d))
+    #   y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)
+    #   y = y.astype(cfg.dtype)
+    #   decoder_positions = jnp.expand_dims(jnp.arange(0,codebook_dim,dtype=jnp.int32),0)
     # elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+    #   codebook_embeddings = self.shared_embedding(decoder_input_tokens.astype("int32"))
+    #   y = jnp.concatenate([decoder_hidden_states[:,:, jnp.newaxis],codebook_embeddings],axis=2)
+    #   b,s,n,d = y.shape
+    #   y = jnp.reshape(y,(b*s,n,d))
+    #   decoder_positions = jnp.expand_dims(jnp.arange(0,codebook_dim+1,dtype=jnp.int32),0)
+    # if model_mode == common_types.MODEL_MODE_TRAIN:
     #   if decoder_segment_ids is not None:
+    #     decoder_segment_ids = jnp.reshape(decoder_segment_ids,(b*s))
     #     decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
-    #     decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=(b*s),axis=1)
+    #     #decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=codebook_dim,axis=1)
+    # # elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+    # #   if decoder_segment_ids is not None:
+    # #     decoder_segment_ids = jnp.expand_dims(decoder_segment_ids,1)
+    # #     decoder_segment_ids = jnp.repeat(decoder_segment_ids,repeats=(b*s),axis=1)
+    y = decoder_hidden_states
     if cfg.use_untrainable_positional_embedding:
       y = PositionalEmbedding(cfg.base_emb_dim)(y, decoder_positions)
 
@@ -363,77 +366,82 @@ class CodebookDecoder(nn.Module):
         policy=policy,
         static_argnums=(-1, -2, -3, -4, -5),
     )
-    codebook_num_decoder_layers = 4
-    if cfg.using_pipeline_parallelism:
-        if cfg.num_layers_per_pipeline_stage == 1:
-          stage_module = BlockLayer(config=cfg, mesh=mesh, quant=self.quant)
-        elif cfg.scan_layers:
-          stage_module = self.scan_decoder_layers(cfg, RemattedBlockLayer, cfg.num_layers_per_pipeline_stage, "layers_per_stage", mesh)
-        elif not cfg.scan_layers:
-          stage_module=SequentialBlockDecoderLayers(decoder_layer=RemattedBlockLayer, num_decoder_layers=cfg.num_layers_per_pipeline_stage, config=cfg, mesh=mesh,quant=self.quant)
+    
+    # if cfg.using_pipeline_parallelism:
+    #     if cfg.num_layers_per_pipeline_stage == 1:
+    #       stage_module = BlockLayer(config=cfg, mesh=mesh, quant=self.quant)
+    #     elif cfg.scan_layers:
+    #       stage_module = self.scan_decoder_layers(cfg, RemattedBlockLayer, cfg.num_layers_per_pipeline_stage, "layers_per_stage", mesh)
+    #     elif not cfg.scan_layers:
+    #       stage_module=SequentialBlockDecoderLayers(decoder_layer=RemattedBlockLayer, num_decoder_layers=cfg.num_layers_per_pipeline_stage, config=cfg, mesh=mesh,quant=self.quant)
 
-        y = pipeline.Pipeline(config=cfg, mesh=mesh, layers=stage_module, remat_policy=policy)(
-            y,
-            decoder_segment_ids,
-            decoder_positions,
-            deterministic,
-            model_mode,
-        )
-    else:
-      if cfg.scan_layers:
-        y, _ = self.scan_decoder_layers(cfg, RemattedBlockLayer, codebook_num_decoder_layers, "layers", mesh)(
-            y,
-            decoder_segment_ids,
-            decoder_positions,
-            deterministic,
-            model_mode,
-        )
-      else:
-        for lyr in range(codebook_num_decoder_layers):
-          y = RemattedBlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
-              y,
-              decoder_segment_ids,
-              decoder_positions,
-              deterministic,
-              model_mode,
-          )
-    y = self.get_norm_layer()(
-        dtype=cfg.dtype,
-        weight_dtype=cfg.weight_dtype,
-        name="decoder_norm",
-        epsilon=cfg.normalization_layer_epsilon,
-        kernel_axes=("norm",),
-    )(y)
-
-    y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)  
-    # [batch, length, emb_dim] -> [batch, length, vocab_size]
-    if cfg.logits_via_embedding:
-      # Use the transpose of embedding matrix for logit transform.
-      logits = self.shared_embedding.attend(y)
-      if self.config.normalize_embedding_logits:
-        # Correctly normalize pre-softmax logits for this shared case.
-        logits = logits / jnp.sqrt(y.shape[-1])
-      if cfg.final_logits_soft_cap:
-        logits = logits / cfg.final_logits_soft_cap
-        logits = jnp.tanh(logits) * cfg.final_logits_soft_cap
-    else:
+    #     y = pipeline.Pipeline(config=cfg, mesh=mesh, layers=stage_module, remat_policy=policy)(
+    #         y,
+    #         decoder_segment_ids,
+    #         decoder_positions,
+    #         deterministic,
+    #         model_mode,
+    #     )
+    # else:
+    #   if cfg.scan_layers:
+    #     y, _ = self.scan_decoder_layers(cfg, RemattedBlockLayer, codebook_num_decoder_layers, "layers", mesh)(
+    #         y,
+    #         decoder_segment_ids,
+    #         decoder_positions,
+    #         deterministic,
+    #         model_mode,
+    #     )
+    #   else:
+    logits_res = []
+    for lyr in range(codebook_dim):
+      y = RemattedBlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
+          y,
+          decoder_segment_ids,
+          decoder_positions,
+          deterministic,
+          model_mode,
+      )
+      y = self.get_norm_layer()(
+          dtype=cfg.dtype,
+          weight_dtype=cfg.weight_dtype,
+          name=f"decoder_norm_{lyr}",
+          epsilon=cfg.normalization_layer_epsilon,
+          kernel_axes=("norm",),
+      )(y)
       logits = linears.DenseGeneral(
           codebook_size,
           weight_dtype=cfg.weight_dtype,
           dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
           kernel_axes=("embed", "vocab"),
-          name="logits_dense",
+          name=f"logits_dense_{lyr}",
           matmul_precision=self.config.matmul_precision,
       )(
           y
-      )  # We do not quantize the logits matmul.
-    if model_mode == common_types.MODEL_MODE_TRAIN:
-      logits = jnp.reshape(logits,(b,s,codebook_dim,codebook_size))
-    elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
-      logits = jnp.reshape(logits,(b,s,codebook_dim+1,codebook_size))
-    logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
-    logits = logits.astype(jnp.float32)
-    return logits
+      )
+      logits_res.append(logits)
+
+
+    y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)  
+    # # [batch, length, emb_dim] -> [batch, length, vocab_size]
+    # if cfg.logits_via_embedding:
+    #   # Use the transpose of embedding matrix for logit transform.
+    #   logits = self.shared_embedding.attend(y)
+    #   if self.config.normalize_embedding_logits:
+    #     # Correctly normalize pre-softmax logits for this shared case.
+    #     logits = logits / jnp.sqrt(y.shape[-1])
+    #   if cfg.final_logits_soft_cap:
+    #     logits = logits / cfg.final_logits_soft_cap
+    #     logits = jnp.tanh(logits) * cfg.final_logits_soft_cap
+    # else:
+      # We do not quantize the logits matmul.
+    # if model_mode == common_types.MODEL_MODE_TRAIN:
+    #   logits = jnp.reshape(logits,(b,s,codebook_dim,codebook_size))
+    # elif model_mode == common_types.MODEL_MODE_AUTOREGRESSIVE or model_mode == common_types.MODEL_MODE_PREFILL:
+    #   logits = jnp.reshape(logits,(b,s,codebook_dim+1,codebook_size))
+    # logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
+    # logits = logits.astype(jnp.float32)
+    logits_res = jnp.stack(logits_res,axis=-2)
+    return logits_res
   
 class Decoder(nn.Module):
 
@@ -640,6 +648,7 @@ class Decoder(nn.Module):
               deterministic,
               model_mode,
           )
+    base_hidden_state = y
     y = self.get_norm_layer()(
         dtype=cfg.dtype,
         weight_dtype=cfg.weight_dtype,
@@ -674,7 +683,7 @@ class Decoder(nn.Module):
     logits = logits.astype(jnp.float32)
 
 
-    return logits,y
+    return logits,base_hidden_state
 
 class Transformer(nn.Module):
   config: Config
@@ -686,8 +695,6 @@ class Transformer(nn.Module):
   def __call__(self,
       decoder_input_tokens,
       decoder_positions,
-      codebook_input_tokens,
-      codebook_positions,
       decoder_hidden_states=None,
       decoder_segment_ids=None,
       enable_dropout=True,
@@ -697,8 +704,8 @@ class Transformer(nn.Module):
       decoder_segment_ids=decoder_segment_ids,
       enable_dropout=enable_dropout,
       model_mode=model_mode)
-    codebook_logits = self.codebook_model(decoder_input_tokens=codebook_input_tokens,
-      decoder_positions=codebook_positions,
+    codebook_logits = self.codebook_model(decoder_input_tokens=None,
+      decoder_positions=None,
       decoder_hidden_states=hidden_states,
       decoder_segment_ids=decoder_segment_ids,
       enable_dropout=enable_dropout,

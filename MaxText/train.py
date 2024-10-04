@@ -285,8 +285,6 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
       params,
       data["inputs"],
       data["inputs_position"],
-      data["targets"],
-      data["targets_position"],
       decoder_segment_ids=data["inputs_segmentation"],
       enable_dropout=config.enable_dropout if is_train else False,
       rngs={"dropout": rng1, "params": aqt_rng},
@@ -308,7 +306,7 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   xent_codebook = nn.with_logical_constraint(xent_codebook, ("activation_embed_and_logits_batch", "activation_length"))
   # Mask out paddings at the end of each example.
   mask = (data["prompt_length"] != 0)
-  mask2 = (data["targets_segmentation"] != 0)
+  mask2 = (data["targets_segmentation_codebook"] != 0)
   combine_mask = jnp.logical_and(mask,mask2)
   xent_codebook = xent_codebook * jnp.expand_dims(combine_mask,-1)
   base_loss = jnp.sum(xent)
@@ -328,7 +326,11 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   aux = {
       "intermediate_outputs": intermediate_outputs,
       "total_loss": total_loss,
+      "base_loss": base_loss / (base_weights+EPS),
+      "codebook_loss": codebook_loss / (codebook_weights+EPS),
       "total_weights": total_weights,
+      "base_weights": base_weights,
+      "codebook_weights": codebook_weights,
       "moe_lb_loss": moe_lb_loss,
   }
   return loss, aux
@@ -386,6 +388,10 @@ def train_step(model, config, state, data, dropout_rng):
     (loss, aux), raw_grads = grad_func(model, config, data, dropout_rng, state.params, is_train=True)
   intermediate_outputs = aux["intermediate_outputs"]
   total_weights = aux["total_weights"]
+  base_loss = aux["base_loss"]
+  codebook_loss = aux["codebook_loss"]
+  base_weights = aux["base_weights"]
+  codebook_weights = aux["codebook_weights"]
   moe_lb_loss = aux["moe_lb_loss"]
 
   if config.gradient_clipping_threshold > 0:
@@ -396,8 +402,12 @@ def train_step(model, config, state, data, dropout_rng):
   metrics = {
       "scalar": {
           "learning/loss": loss,
+          "learning/base_loss": base_loss,
+          "learning/codebook_loss": codebook_loss,
           "learning/moe_lb_loss": moe_lb_loss,
           "learning/total_weights": total_weights,
+          "learning/base_weight": base_weights,
+          "learning/codebook_weight": codebook_weights,
           "learning/grad_norm": max_utils.l2norm_pytree(grads),
           "learning/raw_grad_norm": max_utils.l2norm_pytree(raw_grads),
           "learning/param_norm": max_utils.l2norm_pytree(new_state.params),

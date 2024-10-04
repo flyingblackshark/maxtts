@@ -490,8 +490,6 @@ def init_initial_state(model, tx, config, is_training, key):
       {"params": key, "dropout": key, "aqt": key},
       jnp.ones(input_shape_sentence, dtype=jnp.int32),
       jnp.ones(input_shape_length, dtype=jnp.int32),
-      jnp.ones(input_shape_sentence, dtype=jnp.int32),
-      jnp.ones(input_shape_length, dtype=jnp.int32),
       jnp.ones(input_hidden_state_length, dtype=jnp.int32),
   )
   if is_training:

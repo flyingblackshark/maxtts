@@ -28,6 +28,7 @@ import jax.numpy as jnp
 import dac_jax
 import soundfile as sf
 from jax.experimental.compilation_cache import compilation_cache as cc
+import librosa
 cc.set_cache_dir("./jax_cache")
 CODEBOOK_PAD_TOKEN_ID = 0
 def encode_tokens(
@@ -65,7 +66,7 @@ def encode_tokens(
     #     prompt_tokens = prompt_tokens[0]
 
     # assert prompt_tokens.ndim == 2
-    data = prompt_tokens + 1
+    data = prompt_tokens
 
     # if prompt_tokens.shape[0] > num_codebooks:
     #     logger.warning(
@@ -83,27 +84,42 @@ def encode_tokens(
     s0_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
     end_token_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
     main_token_ids = (
-        jnp.ones((1, data.shpae[1]), dtype=jnp.int32) * s0_token_id
+        jnp.ones((1, data.shape[1]), dtype=jnp.int32) * s0_token_id
     )
-    main_token_ids[0, -1] = end_token_id
+    main_token_ids = main_token_ids.at[0, -1].set(end_token_id)
 
     data = jnp.concatenate((main_token_ids, data), axis=0)
     prompt = jnp.concatenate((prompt, data), axis=1)
-
-    return prompt
+    true_length = prompt.shape[1]
+    return prompt,true_length
 
 
 def main(config):
+    model, variables = dac_jax.load_model(model_type="44khz")
     engine = maxengine.MaxEngine(config)
     params = engine.load_params()
     text = config.prompt
+    @jax.jit
+    def encode_to_codes(x: jnp.ndarray):
+        codes, scale = model.apply(
+            variables,
+            x,
+            method="encode",
+        )
+        return codes, scale
     #metadata = engine.get_tokenizer()
-
+    ref_audio, sr = librosa.load("/root/maxtext/speech.wav", sr=44100,mono=True)
+    prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
+    prompt_token = prompt_token.squeeze(0)
+    prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
     tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
+    encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
     im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
     tokens,true_length = encode_tokens(tokenizer_model,text)
+    tokens = jnp.concatenate((encoded_prompts,tokens),axis=1)
     tokens = tokens.transpose(1,0)
     padding = config.max_prefill_predict_length - tokens.shape[0]
+    true_length = true_length + true_length_prompt
     padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
     #tokenizer_model = engine.build_tokenizer(metadata)
     # tokens, true_length = tokenizer_model.encode(
@@ -112,6 +128,8 @@ def main(config):
     #assert true_length <= config.max_prefill_predict_length, "can't take too many tokens"
     #assert config.quantization != "fp8", "fp8 on NVIDIA GPUs is not supported in decode.py yet"
     #base_params , codebook_params = params
+
+
     prefill_result, first_token = engine.prefill(params=params, padded_tokens=padded_tokens, true_length=true_length)
     slot = 0
 
@@ -129,7 +147,7 @@ def main(config):
     results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
     results = jnp.stack(results,axis=0)[:,1:]   
 
-    model, variables = dac_jax.load_model(model_type="44khz")
+
     @partial(jax.jit, static_argnums=(1, 2))
     def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
         recons = model.apply(

@@ -196,42 +196,42 @@ class MaxEngine(engine_api.Engine):
         hidden_states, (0, true_length - 1, 0), (hidden_states.shape[0], 1, hidden_states.shape[2])
       )
       #codebook_new_logits = []
-      codebook_new_codes = []
-      for i in range(codebook_dim):
-        zero_to_n = jnp.arange(0, codebook_dim+1)
-        ones_to_keep = zero_to_n < i+1
-        one_d_output = ones_to_keep * common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR
-        sequence_indicator = jnp.expand_dims(one_d_output, 0)
-        if len(codebook_new_codes) ==0:
-          padded_codebook_token = jnp.zeros((selected_hidden_size.shape[0],1,9))
-        else:
-          padding_size = codebook_dim - len(codebook_new_codes)
-          codebook_token = jnp.stack(codebook_new_codes)
-          codebook_token = codebook_token.transpose(1,0,2)
-          padded_codebook_token = jnp.pad(codebook_token,((0,0),(0,padding_size),(0,0)))
-          padded_codebook_token = padded_codebook_token.transpose(0,2,1)
-        codebook_logits,codebook_new_vars = self.codebook_model.apply(
-            codebook_params,
-            padded_codebook_token,
-            None,
-            selected_hidden_size,
-            decoder_segment_ids=sequence_indicator,
-            enable_dropout=False,
-            model_mode=common_types.MODEL_MODE_PREFILL,
-            rngs={"params": self.rng},
-            mutable=["cache"],
-        )
-        codebook_generated_token = inference_utils.sampling(
-          codebook_logits[:,:,i+1],
-          self.rng,
-          self.config.decode_sampling_strategy,
-          topk=self.config.decode_sampling_top_k,
-          nucleus_topp=self.config.decode_sampling_nucleus_p,
-          temperature=self.config.decode_sampling_temperature,
-        )
-        codebook_new_codes.append(codebook_generated_token)
+      # codebook_new_codes = []
+      # for i in range(codebook_dim):
+      #   zero_to_n = jnp.arange(0, codebook_dim+1)
+      #   ones_to_keep = zero_to_n < i+1
+      #   one_d_output = ones_to_keep * common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR
+      #   sequence_indicator = jnp.expand_dims(one_d_output, 0)
+      #   if len(codebook_new_codes) ==0:
+      #     padded_codebook_token = jnp.zeros((selected_hidden_size.shape[0],1,9))
+      #   else:
+      #     padding_size = codebook_dim - len(codebook_new_codes)
+      #     codebook_token = jnp.stack(codebook_new_codes)
+      #     codebook_token = codebook_token.transpose(1,0,2)
+      #     padded_codebook_token = jnp.pad(codebook_token,((0,0),(0,padding_size),(0,0)))
+      #     padded_codebook_token = padded_codebook_token.transpose(0,2,1)
+      codebook_new_logits = self.codebook_model.apply(
+          codebook_params,
+          None,
+          None,
+          selected_hidden_size,
+          decoder_segment_ids=sequence_indicator,
+          enable_dropout=False,
+          model_mode=common_types.MODEL_MODE_PREFILL,
+          rngs={"params": self.rng},
+         # mutable=["cache"],
+      )
+      #   codebook_generated_token = inference_utils.sampling(
+      #     codebook_logits[:,:,i+1],
+      #     self.rng,
+      #     self.config.decode_sampling_strategy,
+      #     topk=self.config.decode_sampling_top_k,
+      #     nucleus_topp=self.config.decode_sampling_nucleus_p,
+      #     temperature=self.config.decode_sampling_temperature,
+      #   )
+      #   codebook_new_codes.append(codebook_generated_token)
         #codebook_new_logits.append(codebook_logits)
-    codebook_generated_tokens = jnp.concatenate(codebook_new_codes,axis=-1)
+    #codebook_generated_tokens = jnp.concatenate(codebook_new_codes,axis=-1)
     # codebook_new_vars = jax.tree_map(lambda x:jnp.zeros(x.shape,x.dtype),codebook_new_vars)
     # self.codebook_zero_cache = codebook_new_vars
 
@@ -256,18 +256,18 @@ class MaxEngine(engine_api.Engine):
         nucleus_topp=0.1,
         temperature=0.1,
     )
-    # codebook_generated_tokens = []
-    # for i in range(codebook_dim):
-    #   codebook_generated_token = inference_utils.sampling(
-    #     codebook_selected_logits[:,:,i],
-    #     self.rng,
-    #     self.config.decode_sampling_strategy,
-    #     topk=self.config.decode_sampling_top_k,
-    #     nucleus_topp=self.config.decode_sampling_nucleus_p,
-    #     temperature=self.config.decode_sampling_temperature,
-    #   )
-    #   codebook_generated_tokens.append(codebook_generated_token)
-    first_codebook_generated_token = jnp.expand_dims(codebook_generated_tokens,axis=1)
+    codebook_generated_tokens = []
+    for i in range(codebook_dim):
+      codebook_generated_token = inference_utils.sampling(
+        codebook_new_logits[:,:,i],
+        self.rng,
+        self.config.decode_sampling_strategy,
+        topk=self.config.decode_sampling_top_k,
+        nucleus_topp=self.config.decode_sampling_nucleus_p,
+        temperature=self.config.decode_sampling_temperature,
+      )
+      codebook_generated_tokens.append(codebook_generated_token)
+    first_codebook_generated_token = jnp.stack(codebook_generated_tokens,axis=-1)
     first_generated_token = jnp.concatenate((jnp.expand_dims(first_generated_token,-1),first_codebook_generated_token),axis=-1)
     all_valid = jnp.ones(first_generated_token.shape, dtype=jnp.int8)
     result = engine_api.ResultTokens(
@@ -312,25 +312,25 @@ class MaxEngine(engine_api.Engine):
       )
     
     out_logits = jax.lax.with_sharding_constraint(out_logits, self.replicated_sharding)
-    out_codebook_logits_res = []
+    #out_codebook_logits_res = []
     #codebook_cache = self.codebook_zero_cache
     #padding_value = self.config.per_device_batch_size * jax.device_count() - hidden_state.shape[0]
     #hidden_state_arr = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
-    for i in range(codebook_dim):
-        out_codebook_logits, _ = self.codebook_model.apply(
-          codebook_params,
-          None,
-          i+1,#decode_state["next_pos"],
-          hidden_state,
-          enable_dropout=False,
-          model_mode=common_types.MODEL_MODE_PREFILL,
-          rngs={"params": self.rng},
-          mutable=["cache"],
-        )
+    #for i in range(codebook_dim):
+    out_codebook_logits = self.codebook_model.apply(
+      codebook_params,
+      None,
+      None,#decode_state["next_pos"],
+      hidden_state,
+      enable_dropout=False,
+      model_mode=common_types.MODEL_MODE_PREFILL,
+      rngs={"params": self.rng},
+      #mutable=["cache"],
+    )
         #codebook_cache = new_vars
-        out_codebook_logits_res.append(out_codebook_logits)
-    out_codebook_logits_res = jnp.concatenate(out_codebook_logits_res,axis=-2)
-    out_codebook_logits_res = jax.lax.with_sharding_constraint(out_codebook_logits_res, self.replicated_sharding)
+       # out_codebook_logits_res.append(out_codebook_logits)
+    #out_codebook_logits_res = jnp.concatenate(out_codebook_logits_res,axis=-2)
+    out_codebook_logits = jax.lax.with_sharding_constraint(out_codebook_logits, self.replicated_sharding)
     new_cache = jax.lax.with_sharding_constraint(new_vars["cache"], self.base_kv_cache_shardings)
 
     # sampling tokens
@@ -345,7 +345,7 @@ class MaxEngine(engine_api.Engine):
     codebook_new_tokens = []
     for i in range(codebook_dim):
       codebook_new_token = inference_utils.sampling(
-        out_codebook_logits_res[:,:,i],
+        out_codebook_logits[:,:,i],
         self.rng,
         self.config.decode_sampling_strategy,
         topk=self.config.decode_sampling_top_k,

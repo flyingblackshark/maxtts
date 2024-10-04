@@ -13,6 +13,7 @@ import numpy as np
 import dac_jax
 import tensorflow as tf
 from array_record.python.array_record_module import ArrayRecordWriter
+DEVICE = "tpu"
 MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
@@ -40,7 +41,11 @@ class PadToMaxLength(grain.MapTransform):
         "text_length":text_length
     }
 if __name__ == "__main__":
-    device_mesh = mesh_utils.create_device_mesh((1, 1))
+    if DEVICE == "tpu":
+        jax.distributed.initialize()
+        device_mesh = mesh_utils.create_device_mesh((4, 1))
+    else:
+        device_mesh = mesh_utils.create_device_mesh((1, 1))
     mesh = Mesh(device_mesh, axis_names=("data", "model")) 
     dataset = datasets.load_dataset(
         "MikhailT/hifi-tts",
@@ -112,16 +117,16 @@ if __name__ == "__main__":
 
     CODEBOOK_PAD_TOKEN_ID = 0
     i = 0
-    #writer = None
+    writer = None
     for item in multihost_gen:
         print(f"round {i}")
-        # if i%10240 == 0:
-        #     num = i//10240
-        #     if writer is not None:
-        #         writer.close() 
-        #     writer = ArrayRecordWriter(f"/home/fbsdev005/bucket/fish_speech_ds/maxtext1/hifi_tts_train_part_{num}.arrayrecord", 'group_size:1')
+        if i%10240 == 0:
+            num = i//10240
+            if writer is not None:
+                writer.close() 
+            writer = ArrayRecordWriter(f"/dev/shm/dataset1/hifi_tts_train_part_{num}.arrayrecord", 'group_size:1')
             
-        semantics, scale = encode_to_codes(jnp.expand_dims(item["audio"],1))
+        semantics, _ = encode_to_codes(jnp.expand_dims(item["audio"],1))
         semantics = np.asarray(semantics)
         for k in range(GLOBAL_BATCH_SIZE):
             n_frames = item["audio_length"][k]//512
@@ -182,5 +187,5 @@ if __name__ == "__main__":
                         }
                     )
                 )
-    #         writer.write(example.SerializeToString())
+            writer.write(example.SerializeToString())
     # writer.close() 
