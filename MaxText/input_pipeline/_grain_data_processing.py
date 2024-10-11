@@ -51,7 +51,7 @@ def preprocessing_pipeline(
     add_bos=False,
     add_eos=False,
     num_epochs=None,
-    packing=True,
+    packing=False,
     shift=False,
     drop_remainder=True,
 ):
