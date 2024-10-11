@@ -257,7 +257,7 @@ class MaxEngine(engine_api.Engine):
         temperature=0.1,
     )
     codebook_generated_tokens = []
-    for i in range(codebook_dim):
+    for i in range(self.config.codebook_dim):
       codebook_generated_token = inference_utils.sampling(
         codebook_new_logits[:,:,i],
         self.rng,
@@ -506,8 +506,8 @@ class MaxEngine(engine_api.Engine):
       )
 
       next_pos = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1), dtype=jnp.int32)
-      generated_tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
-      tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,codebook_dim+1), dtype=jnp.int32)
+      generated_tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,self.config.codebook_dim+1), dtype=jnp.int32)
+      tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,self.config.codebook_dim+1), dtype=jnp.int32)
       return {
           "logits": jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1, self.config.vocab_size)),
           "cache": cache["cache"],
