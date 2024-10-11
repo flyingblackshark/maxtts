@@ -297,11 +297,11 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   # Mask out paddings at the end of each example.
   #Batch Length
   xent = xent * (data["targets_segmentation"] != 0)
-  codebook_dim = 9
-  codebook_size = 1024
-  codebook_target = data["targets"][:, :,1 : 1 + codebook_dim]
+
+
+  codebook_target = data["targets"][:, :,1 : 1 + config.codebook_dim]
   #Batch Length Codebook_Dim(=9)
-  one_hot_codebook_targets = jax.nn.one_hot(codebook_target, codebook_size)
+  one_hot_codebook_targets = jax.nn.one_hot(codebook_target, config.codebook_size)
   xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
   xent_codebook = nn.with_logical_constraint(xent_codebook, ("activation_embed_and_logits_batch", "activation_length"))
   # Mask out paddings at the end of each example.
@@ -313,7 +313,7 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   codebook_loss = jnp.sum(xent_codebook)
   total_loss = base_loss + codebook_loss
   base_weights = jnp.sum(data["targets_segmentation"] != 0)
-  codebook_weights = jnp.sum(combine_mask != 0) * codebook_dim
+  codebook_weights = jnp.sum(combine_mask != 0) * config.codebook_dim
   total_weights = base_weights + codebook_weights
   loss = base_loss / (base_weights+EPS) + codebook_loss / (codebook_weights+EPS)
   # get moe load balance loss

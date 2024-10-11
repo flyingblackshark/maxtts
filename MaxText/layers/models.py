@@ -258,9 +258,6 @@ class CodebookDecoder(nn.Module):
       deterministic=False,
       model_mode=common_types.MODEL_MODE_TRAIN,
   ):
-    codebook_dim = 9
-    codebook_size = 1024
-    #codebook_num_decoder_layers = 12
     cfg = self.config
     mesh = self.mesh
 
@@ -393,7 +390,7 @@ class CodebookDecoder(nn.Module):
     #     )
     #   else:
     logits_res = []
-    for lyr in range(codebook_dim):
+    for lyr in range(self.config.codebook_dim):
       y = RemattedBlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
           y,
           decoder_segment_ids,
@@ -409,7 +406,7 @@ class CodebookDecoder(nn.Module):
           kernel_axes=("norm",),
       )(y)
       logits = linears.DenseGeneral(
-          codebook_size,
+          self.config.codebook_size,
           weight_dtype=cfg.weight_dtype,
           dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
           kernel_axes=("embed", "vocab"),

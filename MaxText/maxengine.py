@@ -180,7 +180,7 @@ class MaxEngine(engine_api.Engine):
     ones_to_keep = zero_to_n < true_length
     one_d_output = ones_to_keep * common_types.DECODING_ACTIVE_SEQUENCE_INDICATOR
     sequence_indicator = jnp.expand_dims(one_d_output, 0)
-    codebook_dim = 9
+
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
       (flat_logits,hidden_states),base_new_vars = self.base_model.apply(
           base_params,
@@ -236,7 +236,7 @@ class MaxEngine(engine_api.Engine):
     # self.codebook_zero_cache = codebook_new_vars
 
     next_pos = jnp.full((1, 1), true_length, dtype=jnp.int32)
-    generated_tokens = jnp.zeros((1, 1 , codebook_dim+1), dtype=jnp.int32)
+    generated_tokens = jnp.zeros((1, 1 , self.config.codebook_dim+1), dtype=jnp.int32)
     selected_logits = jax.lax.dynamic_slice(
         flat_logits, (0, true_length - 1, 0), (flat_logits.shape[0], 1, flat_logits.shape[2])
     )
@@ -298,7 +298,6 @@ class MaxEngine(engine_api.Engine):
     """Run one generate step"""
     previous_token = decode_state["tokens"]
     base_params , codebook_params = params
-    codebook_dim = 9
     # run one step generation
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
       (out_logits,hidden_state), new_vars = self.base_model.apply(
@@ -482,9 +481,8 @@ class MaxEngine(engine_api.Engine):
 
     # pylint: disable=unused-argument
     def init(abstract_params):
-      codebook_dim = 9
       x = jnp.ones(
-          (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length,codebook_dim+1),
+          (int(self.config.per_device_batch_size * jax.device_count()), self.config.max_prefill_predict_length,self.config.codebook_dim+1),
           dtype=jnp.int32,
       )
       x2 = jnp.ones(
