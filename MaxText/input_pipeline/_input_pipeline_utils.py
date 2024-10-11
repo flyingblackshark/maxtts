@@ -143,6 +143,13 @@ class HFDataSource(grain.RandomAccessDataSource):
       except StopIteration:
         self._update_shard(idx)
 
+class RemoveTooLongElements(grain.FilterTransform):
+  def __init__(self, max_length):
+    self.max_length = max_length
+
+  def filter(self, features) -> bool:
+    return features["inputs"].shape[0] < self.max_length
+  
 ########## Functions used by Grain pipeline
 @dataclasses.dataclass
 class ParseAndNormalizeFeatures(grain.MapTransform):

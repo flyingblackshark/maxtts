@@ -51,7 +51,7 @@ def preprocessing_pipeline(
     add_bos=False,
     add_eos=False,
     num_epochs=None,
-    packing=False,
+    packing=True,
     shift=False,
     drop_remainder=True,
 ):
@@ -60,6 +60,7 @@ def preprocessing_pipeline(
 
   operations = []
   operations.append(_input_pipeline_utils.ParseAndNormalizeFeatures())
+  operations.append(_input_pipeline_utils.RemoveTooLongElements(max_target_length))
   #operations.append(_input_pipeline_utils.ParseFeatures(data_column, tokenize))
   #operations.append(_input_pipeline_utils.NormalizeFeatures(data_column, tokenize))
 
