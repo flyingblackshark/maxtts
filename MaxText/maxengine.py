@@ -342,7 +342,7 @@ class MaxEngine(engine_api.Engine):
         temperature=0.1,
     )
     codebook_new_tokens = []
-    for i in range(codebook_dim):
+    for i in range(self.config.codebook_dim):
       codebook_new_token = inference_utils.sampling(
         out_codebook_logits[:,:,i],
         self.rng,
