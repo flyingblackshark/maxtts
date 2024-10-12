@@ -299,7 +299,7 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   xent = xent * (data["targets_segmentation"] != 0)
 
 
-  codebook_target = data["targets"][:, :,1 : 1 + config.codebook_dim]
+  codebook_target = data["inputs"][:, :,1 : 1 + config.codebook_dim]
   #Batch Length Codebook_Dim(=9)
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, config.codebook_size)
   xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
