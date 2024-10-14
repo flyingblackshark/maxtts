@@ -405,6 +405,7 @@ class CodebookDecoder(nn.Module):
           epsilon=cfg.normalization_layer_epsilon,
           kernel_axes=("norm",),
       )(y)
+      y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)  
       logits = linears.DenseGeneral(
           self.config.codebook_size,
           weight_dtype=cfg.weight_dtype,
@@ -418,7 +419,7 @@ class CodebookDecoder(nn.Module):
       logits_res.append(logits)
 
 
-    y = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(y, deterministic=deterministic)  
+    
     # # [batch, length, emb_dim] -> [batch, length, vocab_size]
     # if cfg.logits_via_embedding:
     #   # Use the transpose of embedding matrix for logit transform.
