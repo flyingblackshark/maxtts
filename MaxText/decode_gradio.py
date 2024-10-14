@@ -94,72 +94,7 @@ def encode_tokens(
     return prompt,true_length
 
 
-def main(text,config,model,variables,engine,params):
 
-    #text = config.prompt
-    @jax.jit
-    def encode_to_codes(x: jnp.ndarray):
-        codes, scale = model.apply(
-            variables,
-            x,
-            method="encode",
-        )
-        return codes, scale
-    #metadata = engine.get_tokenizer()
-    ref_audio, sr = librosa.load("/root/maxtext/speech.wav", sr=44100,mono=True)
-    prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
-    prompt_token = prompt_token.squeeze(0)
-    #text = "I love singing and dancing."
-    prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
-    tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
-    encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
-    im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
-    tokens,true_length = encode_tokens(tokenizer_model,text)
-    tokens = jnp.concatenate((encoded_prompts,tokens),axis=1)
-    tokens = tokens.transpose(1,0)
-    padding = config.max_prefill_predict_length - tokens.shape[0]
-    true_length = true_length + true_length_prompt
-    padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
-    #tokenizer_model = engine.build_tokenizer(metadata)
-    # tokens, true_length = tokenizer_model.encode(
-    #     text, is_bos=True, prefill_lengths=[config.max_prefill_predict_length]
-    # )
-    #assert true_length <= config.max_prefill_predict_length, "can't take too many tokens"
-    #assert config.quantization != "fp8", "fp8 on NVIDIA GPUs is not supported in decode.py yet"
-    #base_params , codebook_params = params
-
-
-    prefill_result, first_token = engine.prefill(params=params, padded_tokens=padded_tokens, true_length=true_length)
-    slot = 0
-
-    decode_state = engine.init_decode_state()
-    decode_state = engine.insert(prefill_result, decode_state, slot=slot)
-
-    steps = range(config.max_prefill_predict_length, config.max_target_length)
-    sampled_tokens_list = []
-    sampled_tokens_list.append(first_token)
-    for _ in steps:
-        decode_state, sampled_tokens = engine.generate(params, decode_state)
-        if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
-            break
-        sampled_tokens_list.append(sampled_tokens)
-    results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
-    results = jnp.stack(results,axis=0)[:,1:]   
-
-
-    @partial(jax.jit, static_argnums=(1, 2))
-    def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
-        recons = model.apply(
-            variables,
-            codes,
-            scale,
-            length,
-            method="decode",
-        )
-        return recons
-    audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0),None).squeeze((0,1) )
-    sf.write("test.wav",audio_output,samplerate=44100)
-    return "test.wav"
 
 def validate_config(config):
   assert config.load_full_state_path == "", (
@@ -174,11 +109,77 @@ if __name__ == "__main__":
     cfg = pyconfig.config
     validate_config(cfg)  
     max_utils.print_system_information()
-    model, variables = dac_jax.load_model(model_type="44khz")
-    engine = maxengine.MaxEngine(cfg)
-    params = engine.load_params()
+    config = cfg
+    def main(text):
+        model, variables = dac_jax.load_model(model_type="44khz")
+        engine = maxengine.MaxEngine(cfg)
+        params = engine.load_params()
+        #text = config.prompt
+        # @jax.jit
+        # def encode_to_codes(x: jnp.ndarray):
+        #     codes, scale = model.apply(
+        #         variables,
+        #         x,
+        #         method="encode",
+        #     )
+        #     return codes, scale
+        #metadata = engine.get_tokenizer()
+        # ref_audio, sr = librosa.load("/root/maxtext/speech.wav", sr=44100,mono=True)
+        # prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
+        # prompt_token = prompt_token.squeeze(0)
+        #text = "I love singing and dancing."
+        #prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
+        tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
+        #encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
+        im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
+        tokens,true_length = encode_tokens(tokenizer_model,text)
+        #tokens = jnp.concatenate((encoded_prompts,tokens),axis=1)
+        tokens = tokens.transpose(1,0)
+        padding = config.max_prefill_predict_length - tokens.shape[0]
+        #true_length = true_length + true_length_prompt
+        padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
+        #tokenizer_model = engine.build_tokenizer(metadata)
+        # tokens, true_length = tokenizer_model.encode(
+        #     text, is_bos=True, prefill_lengths=[config.max_prefill_predict_length]
+        # )
+        #assert true_length <= config.max_prefill_predict_length, "can't take too many tokens"
+        #assert config.quantization != "fp8", "fp8 on NVIDIA GPUs is not supported in decode.py yet"
+        #base_params , codebook_params = params
+
+
+        prefill_result, first_token = engine.prefill(params=params, padded_tokens=padded_tokens, true_length=true_length)
+        slot = 0
+
+        decode_state = engine.init_decode_state()
+        decode_state = engine.insert(prefill_result, decode_state, slot=slot)
+
+        steps = range(config.max_prefill_predict_length, config.max_target_length)
+        sampled_tokens_list = []
+        sampled_tokens_list.append(first_token)
+        for _ in steps:
+            decode_state, sampled_tokens = engine.generate(params, decode_state)
+            if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
+                break
+            sampled_tokens_list.append(sampled_tokens)
+        results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
+        results = jnp.stack(results,axis=0)[:,1:]   
+
+
+        @partial(jax.jit, static_argnums=(1, 2))
+        def decode_from_codes(codes: jnp.ndarray, scale, length: int = None):
+            recons = model.apply(
+                variables,
+                codes,
+                scale,
+                length,
+                method="decode",
+            )
+            return recons
+        audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0),None).squeeze((0,1) )
+        sf.write("test.wav",audio_output,samplerate=44100)
+        return "test.wav"
     iface = gr.Interface(
-        fn=partial(main,config=cfg,model=model,variables=variables,engine=engine,params=params),  # 处理函数
+        fn=main,  # 处理函数
         inputs="text",      # 输入类型
         outputs="audio",    # 输出类型
         title="文本到语音转换器",  # 界面标题
