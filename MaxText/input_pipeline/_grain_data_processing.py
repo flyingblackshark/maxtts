@@ -32,16 +32,25 @@ def get_datasets_test(data_file_pattern):
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
   dataset = grain_lazy.SourceLazyMapDataset(dataset)
-  transform = _input_pipeline_utils.ParseAndNormalizeFeatures()
-  result = dataset.map(transform)
-  test = next(iter(result))
+  parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
+  create_token_transform = _input_pipeline_utils.CreateToken(codebook_dim=9)
+  dataset = dataset.map(parse_transform)
+  dataset = dataset.map(create_token_transform)
+  length_struct = {"tokens": 4096, "semantics_mask": 4096}
+  dataset = grain_lazy.FirstFitPackLazyIterDataset(
+      dataset,
+      num_packing_bins=2,
+      length_struct=length_struct,
+      shuffle_bins=False,
+  )
+
+  test = next(iter(dataset))
   return dataset
 
 def get_datasets(data_file_pattern):
   """Load dataset from array_record files for using with grain"""
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
-  
   return dataset
 
 

@@ -17,6 +17,7 @@ limitations under the License.
 """Operations used by Grain"""
 
 import dataclasses
+import threading
 import warnings
 from typing import Dict
 from threading import current_thread
@@ -27,7 +28,7 @@ import numpy as np
 import tensorflow as tf
 import max_logging
 import tokenizer
-
+from transformers import AutoTokenizer
 Features = Dict[str, tf.Tensor]
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -234,7 +235,65 @@ class ReformatPacking(grain.MapTransform):
         "targets_position": data[2]["targets"],
     }
 
+@dataclasses.dataclass
+class CreateToken(grain.MapTransform):
+  """Pads each input to the specified length"""
+  # def __post_init__(self):
+  #   self.text_tokenizer = None
+  #   self._initialize_processor_lock = threading.Lock()
 
+  def __init__(self,codebook_dim):
+    self.codebook_dim = codebook_dim
+    string_prefix = "<|im_start|>user\n"
+    string_suffix = "<|im_end|><|im_start|>assistant\n"
+    string_end = "<|im_end|>"
+    # if self.text_tokenizer is None:
+    #   with self._initialize_processor_lock:
+    #     if self.text_tokenizer is None:  # Ensures only one thread initializes SPP.
+    self.text_tokenizer = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
+    self.semantic_value = self.text_tokenizer.convert_tokens_to_ids("<|semantic|>")
+    self.encoded_prefix = self.text_tokenizer.encode(
+        string_prefix,
+        add_special_tokens=False,
+        max_length=10**6,
+        truncation=False,
+    )
+
+    self.encoded_suffix = self.text_tokenizer.encode(
+        string_suffix,
+        add_special_tokens=False,
+        max_length=10**6,
+        truncation=False,
+    )
+
+    self.encoded_end = self.text_tokenizer.encode(
+        string_end,
+        add_special_tokens=False,
+        max_length=10**6,
+        truncation=False,
+    )
+    #self.semantic_value = semantic_value
+
+  def map(self, data):
+    text_tokens = data["text_tokens"]
+    text_encoded = np.concatenate([self.encoded_prefix,text_tokens,self.encoded_suffix],axis=0)
+    text_encoded = text_encoded[:,np.newaxis]
+    padded_text_encoded = np.pad(text_encoded,((0,0),(0,self.codebook_dim)),mode="constant",constant_values=0)
+    semantics_tokens = data["semantics_tokens"]
+    padded_semantics_tokens = np.pad(semantics_tokens,((0,0),(1,0)),mode="constant",constant_values=self.semantic_value)
+    padded_end_encoded = np.expand_dims(np.pad(self.encoded_end,((0,self.codebook_dim)),mode="constant",constant_values=0),0)
+    encoded = np.concatenate([padded_text_encoded,padded_semantics_tokens,padded_end_encoded],axis=0)
+    tokens = encoded
+    semantics_mask = (np.arange(tokens.shape[0])>=text_encoded.shape[0]).astype(np.int32)
+    semantics_mask[-1] = 0
+    return {
+        "tokens": tokens,
+        "semantics_mask":semantics_mask
+        # "text_length": text_tokens.shape[0],
+        # "semantics_length": semantics_tokens.shape[0],
+    }
+
+  
 @dataclasses.dataclass
 class PadToMaxLength(grain.MapTransform):
   """Pads each input to the specified length"""
