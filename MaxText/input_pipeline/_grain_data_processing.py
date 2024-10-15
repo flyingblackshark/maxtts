@@ -27,8 +27,7 @@ from input_pipeline import _grain_tokenizer
 
 import multihost_dataloading
 
-
-def get_datasets(data_file_pattern):
+def get_datasets_test(data_file_pattern):
   """Load dataset from array_record files for using with grain"""
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
@@ -36,6 +35,13 @@ def get_datasets(data_file_pattern):
   transform = _input_pipeline_utils.ParseAndNormalizeFeatures()
   result = dataset.map(transform)
   test = next(iter(result))
+  return dataset
+
+def get_datasets(data_file_pattern):
+  """Load dataset from array_record files for using with grain"""
+  data_files = glob.glob(data_file_pattern)
+  dataset = grain.ArrayRecordDataSource(data_files)
+  
   return dataset
 
 
