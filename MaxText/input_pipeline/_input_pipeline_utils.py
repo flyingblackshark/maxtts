@@ -286,9 +286,15 @@ class CreateToken(grain.MapTransform):
     tokens = encoded
     semantics_mask = (np.arange(tokens.shape[0])>=text_encoded.shape[0]).astype(np.int32)
     semantics_mask[-1] = 0
+    inputs = tokens[:-1]
+    targets = tokens[1:]
+    input_semantics_mask = semantics_mask[:-1]
+    targets_semantics_mask = semantics_mask[1:]
     return {
-        "tokens": tokens,
-        "semantics_mask":semantics_mask
+        "inputs": inputs,
+        "targets": targets,
+        "input_semantics_mask":input_semantics_mask,
+        "targets_semantics_mask":targets_semantics_mask,
         # "text_length": text_tokens.shape[0],
         # "semantics_length": semantics_tokens.shape[0],
     }

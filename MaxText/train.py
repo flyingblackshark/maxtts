@@ -284,8 +284,8 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   (logits, codebook_logits),intermediate_outputs = model.apply(
       params,
       data["inputs"],
-      data["inputs_position"],
-      decoder_segment_ids=data["inputs_segmentation"],
+      data["inputs_positions"],
+      decoder_segment_ids=data["inputs_segment_ids"],
       enable_dropout=config.enable_dropout if is_train else False,
       rngs={"dropout": rng1, "params": aqt_rng},
       mutable="intermediates",
@@ -296,24 +296,19 @@ def loss_fn(model, config, data, dropout_rng, params, is_train=True):
   
   # Mask out paddings at the end of each example.
   #Batch Length
-  xent = xent * (data["targets_segmentation"] != 0)
-
-
+  xent = xent * (data["targets_segment_ids"] != 0)
   codebook_target = data["targets"][:, :,1 : 1 + config.codebook_dim]
   #Batch Length Codebook_Dim(=9)
   one_hot_codebook_targets = jax.nn.one_hot(codebook_target, config.codebook_size)
   xent_codebook, _ = max_utils.cross_entropy_with_logits(codebook_logits, one_hot_codebook_targets,0.0)
   xent_codebook = nn.with_logical_constraint(xent_codebook, ("activation_embed_and_logits_batch", "activation_length"))
   # Mask out paddings at the end of each example.
-  mask = (data["prompt_length"] != 0)
-  mask2 = (data["targets_segmentation_codebook"] != 0)
-  combine_mask = jnp.logical_and(mask,mask2)
-  xent_codebook = xent_codebook * jnp.expand_dims(combine_mask,-1)
+  xent_codebook = xent_codebook * jnp.expand_dims((data["targets_semantics_mask"] != 0),-1)
   base_loss = jnp.sum(xent)
   codebook_loss = jnp.sum(xent_codebook)
   total_loss = base_loss + codebook_loss
-  base_weights = jnp.sum(data["targets_segmentation"] != 0)
-  codebook_weights = jnp.sum(combine_mask != 0) * config.codebook_dim
+  base_weights = jnp.sum(data["targets_segment_ids"] != 0)
+  codebook_weights = jnp.sum(data["targets_semantics_mask"] != 0) * config.codebook_dim
   total_weights = base_weights + codebook_weights
   loss = base_loss / (base_weights+EPS) + codebook_loss / (codebook_weights+EPS)
   # get moe load balance loss

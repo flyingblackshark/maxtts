@@ -27,31 +27,18 @@ from input_pipeline import _grain_tokenizer
 
 import multihost_dataloading
 
-def get_datasets_test(data_file_pattern):
-  """Load dataset from array_record files for using with grain"""
-  data_files = glob.glob(data_file_pattern)
-  dataset = grain.ArrayRecordDataSource(data_files)
-  dataset = grain_lazy.SourceLazyMapDataset(dataset)
-  parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
-  create_token_transform = _input_pipeline_utils.CreateToken(codebook_dim=9)
-  dataset = dataset.map(parse_transform)
-  dataset = dataset.map(create_token_transform)
-  length_struct = {"tokens": 4096, "semantics_mask": 4096}
-  dataset = grain_lazy.FirstFitPackLazyIterDataset(
-      dataset,
-      num_packing_bins=2,
-      length_struct=length_struct,
-      shuffle_bins=False,
-  )
-
-  test = next(iter(dataset))
-  return dataset
-
 def get_datasets(data_file_pattern):
   """Load dataset from array_record files for using with grain"""
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
+  #test = next(iter(dataset))
   return dataset
+
+# def get_datasets(data_file_pattern):
+#   """Load dataset from array_record files for using with grain"""
+#   data_files = glob.glob(data_file_pattern)
+#   dataset = grain.ArrayRecordDataSource(data_files)
+#   return dataset
 
 
 def preprocessing_pipeline(
@@ -77,49 +64,65 @@ def preprocessing_pipeline(
   """Use grain to pre-process the dataset and return iterators"""
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."
 
-  operations = []
-  operations.append(_input_pipeline_utils.ParseAndNormalizeFeatures())
-  operations.append(_input_pipeline_utils.RemoveTooLongElements(max_target_length))
+  #operations = []
+  #operations.append(_input_pipeline_utils.ParseAndNormalizeFeatures())
+  #operations.append(_input_pipeline_utils.RemoveTooLongElements(max_target_length))
   #operations.append(_input_pipeline_utils.ParseFeatures(data_column, tokenize))
   #operations.append(_input_pipeline_utils.NormalizeFeatures(data_column, tokenize))
 
-  if tokenize:
-    operations.append(_grain_tokenizer.TokenizeAndTrim(["inputs", "targets"], max_target_length, tokenizer_path, add_bos, add_eos))
+  # if tokenize:
+  #   operations.append(_grain_tokenizer.TokenizeAndTrim(["inputs", "targets"], max_target_length, tokenizer_path, add_bos, add_eos))
 
-  # Pack and Batch examples.
-  if packing:
-    operations.append(
-        grain.experimental.PackAndBatchOperation(
-            batch_size=global_batch_size // jax.process_count(), length_struct={"inputs": max_target_length, "targets": max_target_length}
-        )
-    )
-    operations.append(_input_pipeline_utils.ReformatPacking())
-  else:
-    operations.append(_input_pipeline_utils.PadToMaxLength(max_target_length))
-    operations.append(grain.Batch(batch_size=global_batch_size // jax.process_count(), drop_remainder=drop_remainder))
+  # # Pack and Batch examples.
+  # if packing:
+  #   operations.append(
+  #       grain.experimental.PackAndBatchOperation(
+  #           batch_size=global_batch_size // jax.process_count(), length_struct={"inputs": max_target_length, "targets": max_target_length}
+  #       )
+  #   )
+  #   operations.append(_input_pipeline_utils.ReformatPacking())
+  # else:
+  #   operations.append(_input_pipeline_utils.PadToMaxLength(max_target_length))
+  #operations.append(grain.Batch(batch_size=global_batch_size // jax.process_count(), drop_remainder=drop_remainder))
 
-  # Shift inputs for teacher-forced training
-  if shift:
-    operations.append(_input_pipeline_utils.ShiftData(axis=1))
+  # # Shift inputs for teacher-forced training
+  # if shift:
+  # operations.append(_input_pipeline_utils.ShiftData(axis=1))
 
-  index_sampler = grain.IndexSampler(
-      num_records=len(dataset),
-      num_epochs=num_epochs,
-      shard_options=grain.ShardOptions(
-          shard_index=dataloading_host_index, shard_count=dataloading_host_count, drop_remainder=drop_remainder
-      ),
-      shuffle=shuffle,
-      seed=data_shuffle_seed,
+  # index_sampler = grain.IndexSampler(
+  #     num_records=len(dataset),
+  #     num_epochs=num_epochs,
+  #     shard_options=grain.ShardOptions(
+  #         shard_index=dataloading_host_index, shard_count=dataloading_host_count, drop_remainder=drop_remainder
+  #     ),
+  #     shuffle=shuffle,
+  #     seed=data_shuffle_seed,
+  # )
+
+
+  dataset = grain_lazy.SourceLazyMapDataset(dataset)
+  parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
+  create_token_transform = _input_pipeline_utils.CreateToken(codebook_dim=9)
+
+  dataset = dataset.map(parse_transform)
+  dataset = dataset.map(create_token_transform)
+
+  length_struct = {"inputs": max_target_length, "targets": max_target_length,"input_semantics_mask": max_target_length, "targets_semantics_mask": max_target_length}
+  dataset = grain_lazy.FirstFitPackLazyIterDataset(
+      dataset,
+      num_packing_bins=2,
+      length_struct=length_struct,
+      shuffle_bins=False,
+      meta_features=("input_semantics_mask","targets_semantics_mask")
   )
-
-  dataloader = grain.DataLoader(
-      data_source=dataset,
-      operations=operations,
-      sampler=index_sampler,
-      worker_count=grain_worker_count,
-  )
-
-  multihost_gen = multihost_dataloading.MultiHostDataLoadIterator(dataloader, global_mesh)
+  dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
+  # dataloader = grain.DataLoader(
+  #     data_source=dataset,
+  #     operations=operations,
+  #     sampler=index_sampler,
+  #     worker_count=grain_worker_count,
+  # )
+  multihost_gen = multihost_dataloading.MultiHostDataLoadIterator(dataset, global_mesh)
 
   # Return multi-host jax.Array prep iterator
   return multihost_gen
