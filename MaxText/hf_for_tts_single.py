@@ -18,6 +18,7 @@ MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_TEXT = 10000
 GLOBAL_BATCH_SIZE = 64
 SOURCE_SAMPLERATE = 44100
+DATASET_NAME = "HIFI_TTS_"
 class HFParseAudioFeatures(grain.MapTransform):
   """Normalize feature keys for HuggingFace input"""
   def map(self, features):
@@ -25,6 +26,7 @@ class HFParseAudioFeatures(grain.MapTransform):
     return {
         "audio": np.asarray(audio_44k, dtype=np.float32),
         "text": np.asarray(features["text"], dtype=np.int32),
+        "speaker":int(features["speaker"]),
     }   
 
 class PadToMaxLength(grain.MapTransform):
@@ -38,7 +40,8 @@ class PadToMaxLength(grain.MapTransform):
         "audio": padded_audio,
         "audio_length":audio_length,
         "text": padded_text,
-        "text_length":text_length
+        "text_length":text_length,
+        "speaker":int(data["speaker"]),
     }
 if __name__ == "__main__":
     if DEVICE == "tpu":
@@ -81,7 +84,7 @@ if __name__ == "__main__":
             method="encode",
         )
         return codes, scale
-    dataset = dataset.select_columns(["input_ids","audio"]).rename_column("input_ids", "text")
+    dataset = dataset.select_columns(["input_ids","audio","speaker"]).rename_column("input_ids", "text")
     dataset = _input_pipeline_utils.HFDataSource(dataset,
                                                 0,
                                                 1,
@@ -182,8 +185,10 @@ if __name__ == "__main__":
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(text_tokens).numpy()])),
                             'semantics_tokens':tf.train.Feature(
                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
+                            ),
+                            'speaker':tf.train.Feature(
+                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item["speaker"])).encode('utf-8')])
                             )
-                            #'speaker':tf.train.Feature(bytes_list=tf.train.BytesList(value=[item["speaker"].encode('utf-8')]))
                         }
                     )
                 )
