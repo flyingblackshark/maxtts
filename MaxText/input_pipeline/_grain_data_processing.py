@@ -21,7 +21,7 @@ import glob
 import ml_collections
 import jax
 import grain.python as grain
-
+import grain.python_lazy_dataset as grain_lazy
 from input_pipeline import _input_pipeline_utils
 from input_pipeline import _grain_tokenizer
 
@@ -32,6 +32,10 @@ def get_datasets(data_file_pattern):
   """Load dataset from array_record files for using with grain"""
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
+  dataset = grain_lazy.SourceLazyMapDataset(dataset)
+  transform = _input_pipeline_utils.ParseAndNormalizeFeatures()
+  result = dataset.map(transform)
+  test = next(iter(result))
   return dataset
 
 
