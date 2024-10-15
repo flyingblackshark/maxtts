@@ -150,6 +150,22 @@ class RemoveTooLongElements(grain.FilterTransform):
   def filter(self, features) -> bool:
     return features["inputs"].shape[0] < self.max_length
   
+@dataclasses.dataclass
+class ParseTextAndSemanticFeatures(grain.MapTransform):
+  def map(self, features):
+    parsed = tf.io.parse_example(features, {
+      "text_tokens": tf.io.FixedLenFeature([], dtype=tf.string),
+      "semantics_tokens": tf.io.FixedLenFeature([], dtype=tf.string)
+      })
+    text_tokens = tf.io.parse_tensor(parsed["text_tokens"],tf.int32).numpy()
+    semantics_tokens = tf.io.parse_tensor(parsed["semantics_tokens"],tf.int32).numpy().transpose(1,0)
+    #codebook_targets = tf.io.parse_tensor(parsed["tokens"],tf.int64).numpy().transpose(1,0)[:-1]
+    #prompt_length = parsed["prompt_length"].numpy()
+
+    return {
+        "text_tokens": text_tokens,
+        "semantics_tokens": semantics_tokens,
+}
 ########## Functions used by Grain pipeline
 @dataclasses.dataclass
 class ParseAndNormalizeFeatures(grain.MapTransform):
