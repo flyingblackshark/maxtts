@@ -171,43 +171,43 @@ if __name__ == "__main__":
             text_tokens = item[1]["text"][k][:text_length]
             semantics_slice = semantics[k][:,:n_frames]
 
-            string_prefix = "<|im_start|>user\n"
-            string_suffix = "<|im_end|><|im_start|>assistant\n"
+            # string_prefix = "<|im_start|>user\n"
+            # string_suffix = "<|im_end|><|im_start|>assistant\n"
 
-            encoded_prefix = tokenizer.encode(
-                string_prefix,
-                add_special_tokens=False,
-                max_length=10**6,
-                truncation=False,
-            )
+            # encoded_prefix = tokenizer.encode(
+            #     string_prefix,
+            #     add_special_tokens=False,
+            #     max_length=10**6,
+            #     truncation=False,
+            # )
 
-            encoded_suffix = tokenizer.encode(
-                string_suffix,
-                add_special_tokens=False,
-                max_length=10**6,
-                truncation=False,
-            )
+            # encoded_suffix = tokenizer.encode(
+            #     string_suffix,
+            #     add_special_tokens=False,
+            #     max_length=10**6,
+            #     truncation=False,
+            # )
 
-            encoded = encoded_prefix + np.asarray(text_tokens).tolist() + encoded_suffix
-            codebook_dim = 9
-            semantic_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
-            semantic_length = semantics_slice.shape[1]#sum([len(i[0]) for i in semantics])
-            tokens = (
-                encoded
-                + [semantic_token_id] * semantic_length
-                + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
-            )
-            prompt_length = len(encoded)
-            codes = [[CODEBOOK_PAD_TOKEN_ID] * prompt_length for _ in range(codebook_dim)]
-            #for segment in semantics:
-            for book_idx, book in zip(range(codebook_dim), semantics_slice):
-                for j in book:
-                    codes[book_idx].append(int(j))
+            # encoded = encoded_prefix + np.asarray(text_tokens).tolist() + encoded_suffix
+            # codebook_dim = 9
+            # semantic_token_id = tokenizer.convert_tokens_to_ids("<|semantic|>")
+            # semantic_length = semantics_slice.shape[1]#sum([len(i[0]) for i in semantics])
+            # tokens = (
+            #     encoded
+            #     + [semantic_token_id] * semantic_length
+            #     + tokenizer.convert_tokens_to_ids(["<|im_end|>"])
+            # )
+            # prompt_length = len(encoded)
+            # codes = [[CODEBOOK_PAD_TOKEN_ID] * prompt_length for _ in range(codebook_dim)]
+            # #for segment in semantics:
+            # for book_idx, book in zip(range(codebook_dim), semantics_slice):
+            #     for j in book:
+            #         codes[book_idx].append(int(j))
 
-            for book in codes:
-                book.extend([CODEBOOK_PAD_TOKEN_ID] * 1)
-            tokens = [tokens] + codes
-            tokens = np.asarray(tokens)
+            # for book in codes:
+            #     book.extend([CODEBOOK_PAD_TOKEN_ID] * 1)
+            # tokens = [tokens] + codes
+            # tokens = np.asarray(tokens)
             #labels = tokens.copy()
             #tokens = tokens[:, :-1]
             #labels = labels[:, 1:]
@@ -231,12 +231,10 @@ if __name__ == "__main__":
             example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
-                            'tokens': tf.train.Feature(
-                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(tokens).numpy()])),
-                            # 'targets': tf.train.Feature(
-                            #     bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(labels).numpy()])),
-                            'prompt_length':tf.train.Feature(
-                               int64_list=tf.train.Int64List(value=[prompt_length])
+                            'text_tokens': tf.train.Feature(
+                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(text_tokens).numpy()])),
+                            'semantics_tokens':tf.train.Feature(
+                               bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
                             )
                             #'speaker':tf.train.Feature(bytes_list=tf.train.BytesList(value=[item["speaker"].encode('utf-8')]))
                         }
