@@ -158,11 +158,14 @@ if __name__ == "__main__":
         sampled_tokens_list.append(first_token)
         for _ in steps:
             decode_state, sampled_tokens = engine.generate(params, decode_state)
-            if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
-                break
+            # if sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0)[0] == im_end_id:
+            #     break
             sampled_tokens_list.append(sampled_tokens)
         results = [sampled_tokens.get_result_at_slot(slot).tokens[0].squeeze(0) for sampled_tokens in sampled_tokens_list]
-        results = jnp.stack(results,axis=0)[:,1:]   
+        results = jnp.stack(results,axis=0)
+        real_length = jnp.where(results[:,0] == im_end_id)
+        real_length = real_length[0][0]
+        results = results[:int(real_length),1:]
 
 
         @partial(jax.jit, static_argnums=(1, 2))

@@ -50,6 +50,7 @@ class DecodeState:
   generate_cache_index: int
   generate_lengths: jax.Array
   generated_token: jax.Array
+  window: jax.Array
 
 
 class MaxEngine(engine_api.Engine):
@@ -350,13 +351,14 @@ class MaxEngine(engine_api.Engine):
         topk=self.config.decode_sampling_top_k,
         nucleus_topp=self.config.decode_sampling_nucleus_p,
         temperature=self.config.decode_sampling_temperature,
-        previous_token=previous_token[:,:,i+1],
-        repetition_penalty=1.2,
+        window=decode_state["window"][:,:,i+1],
+        repetition_penalty=1.2
       )
       codebook_new_tokens.append(codebook_new_token)
     codebook_new_tokens = jnp.stack(codebook_new_tokens,axis=-1)
     new_token = jnp.concatenate((jnp.expand_dims(new_token,-1),codebook_new_tokens),axis=-1)
     all_valid = jnp.ones(new_token.shape, dtype=jnp.int8)
+    window = jnp.concatenate([new_token,decode_state["window"][:,:-1]],axis=1)
     result = engine_api.ResultTokens(
         data=jnp.concatenate(
             (new_token, all_valid, decode_state["generated_tokens"]), axis=1
@@ -377,7 +379,8 @@ class MaxEngine(engine_api.Engine):
         "cache": new_cache,
         "next_pos": decode_state["next_pos"] + 1,
         "generated_tokens": decode_state["generated_tokens"] + 1,
-        "tokens": new_token
+        "tokens": new_token,
+        "window":window
     }, result
 
   @functools.partial(
@@ -449,19 +452,24 @@ class MaxEngine(engine_api.Engine):
     inserted_tokens = jax.lax.dynamic_update_index_in_dim(
       decode_state["tokens"], unboxed_prefix["tokens"], slot, 0
     )
+    # inserted_window = jax.lax.dynamic_update_index_in_dim(
+    #     decode_state["window"], unboxed_prefix["generated_tokens"], slot, 0
+    # )
 
     inserted_logits = jax.lax.with_sharding_constraint(inserted_logits, self.replicated_sharding)
     inserted_generated_tokens = jax.lax.with_sharding_constraint(inserted_generated_tokens, self.replicated_sharding)
     inserted_next_pos = jax.lax.with_sharding_constraint(inserted_next_pos, self.replicated_sharding)
     inserted_tokens = jax.lax.with_sharding_constraint(inserted_tokens, self.replicated_sharding)
     inserted_cache = jax.lax.with_sharding_constraint(inserted_cache, self.base_kv_cache_shardings)
+    inserted_window = jax.lax.with_sharding_constraint(decode_state["window"], self.replicated_sharding)
 
     return {
         "logits": inserted_logits,
         "cache": inserted_cache,
         "next_pos": inserted_next_pos,
         "generated_tokens": inserted_generated_tokens,
-        "tokens": inserted_tokens
+        "tokens": inserted_tokens,
+        "window":inserted_window
     }
 
   def get_prefix_destination_sharding(self) -> Any:
@@ -510,12 +518,15 @@ class MaxEngine(engine_api.Engine):
       next_pos = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1), dtype=jnp.int32)
       generated_tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,self.config.codebook_dim+1), dtype=jnp.int32)
       tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,self.config.codebook_dim+1), dtype=jnp.int32)
+      tokens = jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1,self.config.codebook_dim+1), dtype=jnp.int32)
+      window = jnp.full((int(self.config.per_device_batch_size * jax.device_count()), 16 , 10),-1, dtype=jnp.int32)
       return {
           "logits": jnp.zeros((int(self.config.per_device_batch_size * jax.device_count()), 1, self.config.vocab_size)),
           "cache": cache["cache"],
           "next_pos": next_pos,
           "generated_tokens": generated_tokens,
-          "tokens": tokens
+          "tokens": tokens,
+          "window": window
       }
 
     with nn_partitioning.axis_rules(self.config.logical_axis_rules):
