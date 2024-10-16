@@ -238,10 +238,10 @@ if __name__ == "__main__":
                                 bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(text_tokens).numpy()])),
                             'semantics_tokens':tf.train.Feature(
                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
-                            )
+                            ),
                             'speaker':tf.train.Feature(
                                bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item["speaker"])).encode('utf-8')])
-                            )
+                            ),
                         }
                     )
                 )
