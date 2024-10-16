@@ -18,6 +18,7 @@ MAX_LENGTH_AUDIO = 40 * 44100
 MAX_LENGTH_TEXT = 4096
 GLOBAL_BATCH_SIZE = 32
 SOURCE_SAMPLERATE = 16000
+DATASET_NAME = "MLS_ENG_10K_"
 class HFParseAudioFeatures(grain.MapTransform):
   """Normalize feature keys for HuggingFace input"""
   def map(self, features):
@@ -31,6 +32,7 @@ class HFTagParseAudioFeatures(grain.MapTransform):
   def map(self, features):
     return {
         "text": np.asarray(features["text"], dtype=np.int32),
+        "speaker":int(features["speaker_id"])
     }   
 class PadToMaxLength(grain.MapTransform):
 
@@ -56,7 +58,8 @@ class PadTagToMaxLength(grain.MapTransform):
         # "audio": padded_audio,
         # "audio_length":audio_length,
         "text": padded_text,
-        "text_length":text_length
+        "text_length":text_length,
+        "speaker":int(data["speaker"]),
     }
 if __name__ == "__main__":
     device_mesh = mesh_utils.create_device_mesh((4, 1))
@@ -99,7 +102,7 @@ if __name__ == "__main__":
         )
         return codes, scale
     dataset = dataset.select_columns(["audio"])
-    tag_dataset = tag_dataset.select_columns(["input_ids"]).rename_column("input_ids", "text")
+    tag_dataset = tag_dataset.select_columns(["input_ids","speaker_id"]).rename_column("input_ids", "text")
     tag_dataset = _input_pipeline_utils.HFDataSource(tag_dataset,
                                                 0,
                                                 1,
@@ -162,7 +165,7 @@ if __name__ == "__main__":
             num = i//10240
             if writer is not None:
                 writer.close() 
-            writer = ArrayRecordWriter(f"/home/fbsdev005/bucket/fish_speech_ds/llm3/mls_eng_train_part_{num}.arrayrecord", 'group_size:1')
+            writer = ArrayRecordWriter(f"/bucket/new_dataset/mls_eng_10k/mls_eng_train_part_{num}.arrayrecord", 'group_size:1')
         
         semantics, scale = encode_to_codes(jnp.expand_dims(item[0]["audio"],1))
         for k in range(GLOBAL_BATCH_SIZE):
@@ -236,7 +239,9 @@ if __name__ == "__main__":
                             'semantics_tokens':tf.train.Feature(
                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
                             )
-                            #'speaker':tf.train.Feature(bytes_list=tf.train.BytesList(value=[item["speaker"].encode('utf-8')]))
+                            'speaker':tf.train.Feature(
+                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item["speaker"])).encode('utf-8')])
+                            )
                         }
                     )
                 )
