@@ -350,6 +350,8 @@ class MaxEngine(engine_api.Engine):
         topk=self.config.decode_sampling_top_k,
         nucleus_topp=self.config.decode_sampling_nucleus_p,
         temperature=self.config.decode_sampling_temperature,
+        previous_token=previous_token[:,:,i+1],
+        repetition_penalty=1.2,
       )
       codebook_new_tokens.append(codebook_new_token)
     codebook_new_tokens = jnp.stack(codebook_new_tokens,axis=-1)

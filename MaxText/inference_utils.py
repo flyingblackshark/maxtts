@@ -25,9 +25,30 @@ NEG_INF = -1.0e7  # Masking purpose
 
     Inspired by an Google-internal implementation, Global Vision Transformer.
 """
+def apply_repetition_penalty(logits, tokens, penalty):
+	"""
+	Applies repetition penalty to the logits.
 
+	Args:
+	    logits: Logits tensor.
+	    tokens: Previously generated tokens.
+	    penalty: Repetition penalty factor.
 
-def sampling(logits, rng, algorithm, topk=0, nucleus_topp=0, temperature=1.0):
+	Returns:
+	    Logits tensor with repetition penalty applied.
+	"""
+
+	# Create a mask for the tokens that appear in the input
+	vocab_size = logits.shape[-1]
+	token_mask = jnp.zeros(vocab_size, dtype=jnp.bool_)
+	token_mask = token_mask.at[tokens].set(True)
+
+	# Apply the penalty
+	logits = jnp.where(token_mask, logits / penalty, logits * penalty)
+
+	return logits
+
+def sampling(logits, rng, algorithm, topk=0, nucleus_topp=0, temperature=1.0,previous_token=None,repetition_penalty=1.0):
   """
   logits: unnormalized logits to sample, shaped [YOUR_LEADING_DIMS, Vocab], before logit
   rng: rng key to use
@@ -36,6 +57,14 @@ def sampling(logits, rng, algorithm, topk=0, nucleus_topp=0, temperature=1.0):
   nucleus_topp: restricting to p probability mass before sampling
   temperature: temperature parameter for scaling probability
   """
+  logits = jax.lax.cond(
+		repetition_penalty != 1.0,
+		apply_repetition_penalty,
+		lambda x, *u: x,
+		logits,
+		previous_token,
+		repetition_penalty,
+	)
   if algorithm == "greedy":
     return jnp.argmax(logits, axis=-1)
   elif algorithm == "weighted":
