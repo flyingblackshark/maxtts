@@ -481,10 +481,11 @@ class MaxEngine(engine_api.Engine):
 
   def build_tokenizer(self, metadata: tokenizer_pb2.TokenizerParameters) -> tokenizer_api.Tokenizer:
     """Return a tokenizer"""
-    if "tiktoken" in metadata.path:
-      return token_utils.TikToken(metadata)
-    else:
-      return token_utils.SentencePieceTokenizer(metadata)
+    return token_utils.FishSpeechTokenizer(metadata)
+    # if "tiktoken" in metadata.path:
+    #   return token_utils.TikToken(metadata)
+    # else:
+    #   return token_utils.SentencePieceTokenizer(metadata)
 
   def init_decode_state(self, *args, **kwargs) -> DecodeState:
     """Initialises any state which a generation step transforms."""
