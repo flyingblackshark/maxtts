@@ -46,6 +46,25 @@
                "ici_autoregressive_parallelism=1",]
     },
     {
+    "name": "Debug MaxText Jetstream Server",
+    "type": "python",
+    "request": "launch",
+    "console": "integratedTerminal",
+    "justMyCode": false,
+    "python": "python3",
+    "program": "${workspaceFolder}/MaxText/maxengine_server.py",
+    "args": ["MaxText/configs/base.yml", 
+             "load_parameters_path=gs://fbs-us2/maxtext_output/test9/checkpoints/225000/items",
+             "max_prefill_predict_length=64",
+             "max_target_length=4096",
+             "ici_fsdp_parallelism=1",
+             "ici_tensor_parallelism=-1",
+             "ici_autoregressive_parallelism=1",
+             "scan_layers=false",
+             "weight_dtype=bfloat16",
+             "per_device_batch_size=11"]
+  },
+    {
       "name": "Debug MaxText Train",
       "type": "python",
       "request": "launch",
