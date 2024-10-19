@@ -484,10 +484,12 @@ def init_initial_state(model, tx, config, is_training, key):
   """
   input_shape_sentence = (config.micro_batch_size_to_train_on, config.max_target_length , config.codebook_dim + 1)
   input_shape_length = (config.micro_batch_size_to_train_on, config.max_target_length)
+  input_hidden_state_length = (config.micro_batch_size_to_train_on, config.max_target_length,config.base_emb_dim)
   model_vars = model.init(
       {"params": key, "dropout": key, "aqt": key},
       jnp.ones(input_shape_sentence, dtype=jnp.int32),
       jnp.ones(input_shape_length, dtype=jnp.int32),
+      jnp.ones(input_hidden_state_length, dtype=jnp.int32),
   )
   if is_training:
     return init_training_state(model.apply, model_vars, tx)
@@ -852,11 +854,17 @@ def get_kv_cache_annotations(model, config, rng, mesh):
         config.micro_batch_size_to_train_on,
         config.max_prefill_predict_length,
     )
+    input_shape3 = (
+        config.micro_batch_size_to_train_on,
+        config.max_prefill_predict_length,
+        config.base_emb_dim,
+    )
 
     model_vars = model.init(
         {"params": rng, "dropout": rng, "aqt": rng},
         jnp.ones(input_shape),
         jnp.ones(input_shape2),
+        jnp.ones(input_shape3),
         model_mode=common_types.MODEL_MODE_PREFILL,
     )
     return model_vars["cache"]
