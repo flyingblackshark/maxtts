@@ -240,7 +240,7 @@ if __name__ == "__main__":
                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
                             ),
                             'speaker':tf.train.Feature(
-                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item["speaker"])).encode('utf-8')])
+                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item[1]["speaker"][k])).encode('utf-8')])
                             ),
                         }
                     )
