@@ -167,6 +167,16 @@ class ParseTextAndSemanticFeatures(grain.MapTransform):
         "text_tokens": text_tokens,
         "semantics_tokens": semantics_tokens,
 }
+@dataclasses.dataclass
+class LogicalCombineSegment(grain.MapTransform):
+  def map(self, features):
+    inputs_segment_length = np.sum(features["inputs_segment_ids"]!=0)
+    targets_segment_length = np.sum(features["targets_segment_ids"]!=0)
+    features["inputs_segment_ids"][:inputs_segment_length] = np.ones(inputs_segment_length)
+    features["targets_segment_ids"][:targets_segment_length] = np.ones(targets_segment_length)
+    features["inputs_positions"][:inputs_segment_length] = np.arange(inputs_segment_length)
+    features["targets_positions"][:inputs_segment_length] = np.arange(inputs_segment_length)
+    return features
 ########## Functions used by Grain pipeline
 @dataclasses.dataclass
 class ParseAndNormalizeFeatures(grain.MapTransform):

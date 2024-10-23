@@ -70,4 +70,5 @@ if __name__ == "__main__":
                 )
             )
         writer_dict[speaker].write(example.SerializeToString())
-    # writer.close() 
+    for writer in writer_dict.values():
+        writer.close() 

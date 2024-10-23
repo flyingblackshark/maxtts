@@ -24,7 +24,7 @@ import grain.python as grain
 import grain.python_lazy_dataset as grain_lazy
 from input_pipeline import _input_pipeline_utils
 from input_pipeline import _grain_tokenizer
-
+from grain._src.python import options as grain_options
 import multihost_dataloading
 
 def get_datasets(data_file_pattern):
@@ -98,24 +98,43 @@ def preprocessing_pipeline(
   #     shuffle=shuffle,
   #     seed=data_shuffle_seed,
   # )
-
-
-  dataset = grain_lazy.SourceLazyMapDataset(dataset)
+  all_ds = []
+  speaker_files = glob.glob("/bucket/speaker_dataset/*.arrayrecord")
   parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
+  combine_transform = _input_pipeline_utils.LogicalCombineSegment()
   create_token_transform = _input_pipeline_utils.CreateToken(codebook_dim=9)
-
+  length_struct = {"inputs": max_target_length, "targets": max_target_length,"input_semantics_mask": max_target_length, "targets_semantics_mask": max_target_length}
+  for ds in speaker_files:
+    speaker_dataset = grain.ArrayRecordDataSource(ds)
+    speaker_dataset = grain_lazy.SourceLazyMapDataset(speaker_dataset)
+    speaker_dataset = speaker_dataset.map(parse_transform)
+    speaker_dataset = speaker_dataset.map(create_token_transform)
+    speaker_dataset = grain_lazy.FirstFitPackLazyIterDataset(
+      speaker_dataset,
+      num_packing_bins=2,
+      length_struct=length_struct,
+      shuffle_bins=True,
+      meta_features=("input_semantics_mask","targets_semantics_mask")
+    )
+    speaker_dataset = speaker_dataset.map(combine_transform)
+    all_ds.append(speaker_dataset)
+  dataset = grain_lazy.SourceLazyMapDataset(dataset)
   dataset = dataset.map(parse_transform)
   dataset = dataset.map(create_token_transform)
-
-  length_struct = {"inputs": max_target_length, "targets": max_target_length,"input_semantics_mask": max_target_length, "targets_semantics_mask": max_target_length}
   dataset = grain_lazy.FirstFitPackLazyIterDataset(
       dataset,
       num_packing_bins=2,
       length_struct=length_struct,
-      shuffle_bins=False,
+      shuffle_bins=True,
       meta_features=("input_semantics_mask","targets_semantics_mask")
   )
+  all_ds.append(dataset)
+  dataset = grain_lazy.MixedLazyIterDataset(all_ds)
+  #dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
+  #dataset = dataset.shuffle()
   dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
+  prefecth_options = grain_options.MultiprocessingOptions(num_workers=8,per_worker_buffer_size=128)
+  dataset = dataset.prefetch(multiprocessing_options=prefecth_options)
   # dataloader = grain.DataLoader(
   #     data_source=dataset,
   #     operations=operations,
