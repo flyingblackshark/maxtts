@@ -72,10 +72,10 @@ def preprocessing_pipeline(
   length_struct = {"inputs": max_target_length, "targets": max_target_length,"input_semantics_mask": max_target_length, "targets_semantics_mask": max_target_length}
   for ds in speaker_files:
     speaker_dataset = grain.ArrayRecordDataSource(ds)
-    speaker_dataset = grain_lazy.SourceLazyMapDataset(speaker_dataset)
+    speaker_dataset = grain_lazy.SourceLazyMapDataset(speaker_dataset).seed(data_shuffle_seed)
     speaker_dataset = grain_lazy.RepeatLazyMapDataset(speaker_dataset,num_epochs=None)
-    speaker_dataset = speaker_dataset.seed(data_shuffle_seed)
-    speaker_dataset = grain_lazy.ShuffleLazyMapDataset(speaker_dataset)
+    #speaker_dataset = speaker_dataset.seed(data_shuffle_seed)
+    #speaker_dataset = grain_lazy.ShuffleLazyMapDataset(speaker_dataset)
     speaker_dataset = speaker_dataset.map(parse_transform)
     speaker_dataset = speaker_dataset.map(create_token_transform)
     speaker_dataset = grain_lazy.FirstFitPackLazyIterDataset(
@@ -87,10 +87,10 @@ def preprocessing_pipeline(
     )
     speaker_dataset = speaker_dataset.map(combine_transform)
     all_ds.append(speaker_dataset)
-  dataset = grain_lazy.SourceLazyMapDataset(dataset)
+  dataset = grain_lazy.SourceLazyMapDataset(dataset).seed(data_shuffle_seed)
   dataset = grain_lazy.RepeatLazyMapDataset(dataset,num_epochs=None)
-  dataset = speaker_dataset.seed(dataset)
-  dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
+  #dataset = speaker_dataset.seed(dataset)
+  #dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
   dataset = dataset.map(parse_transform)
   dataset = dataset.map(create_token_transform)
   dataset = grain_lazy.FirstFitPackLazyIterDataset(
