@@ -64,40 +64,6 @@ def preprocessing_pipeline(
   """Use grain to pre-process the dataset and return iterators"""
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."
 
-  #operations = []
-  #operations.append(_input_pipeline_utils.ParseAndNormalizeFeatures())
-  #operations.append(_input_pipeline_utils.RemoveTooLongElements(max_target_length))
-  #operations.append(_input_pipeline_utils.ParseFeatures(data_column, tokenize))
-  #operations.append(_input_pipeline_utils.NormalizeFeatures(data_column, tokenize))
-
-  # if tokenize:
-  #   operations.append(_grain_tokenizer.TokenizeAndTrim(["inputs", "targets"], max_target_length, tokenizer_path, add_bos, add_eos))
-
-  # # Pack and Batch examples.
-  # if packing:
-  #   operations.append(
-  #       grain.experimental.PackAndBatchOperation(
-  #           batch_size=global_batch_size // jax.process_count(), length_struct={"inputs": max_target_length, "targets": max_target_length}
-  #       )
-  #   )
-  #   operations.append(_input_pipeline_utils.ReformatPacking())
-  # else:
-  #   operations.append(_input_pipeline_utils.PadToMaxLength(max_target_length))
-  #operations.append(grain.Batch(batch_size=global_batch_size // jax.process_count(), drop_remainder=drop_remainder))
-
-  # # Shift inputs for teacher-forced training
-  # if shift:
-  # operations.append(_input_pipeline_utils.ShiftData(axis=1))
-
-  # index_sampler = grain.IndexSampler(
-  #     num_records=len(dataset),
-  #     num_epochs=num_epochs,
-  #     shard_options=grain.ShardOptions(
-  #         shard_index=dataloading_host_index, shard_count=dataloading_host_count, drop_remainder=drop_remainder
-  #     ),
-  #     shuffle=shuffle,
-  #     seed=data_shuffle_seed,
-  # )
   all_ds = []
   speaker_files = glob.glob("/bucket/speaker_dataset/*.arrayrecord")
   parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
@@ -107,6 +73,9 @@ def preprocessing_pipeline(
   for ds in speaker_files:
     speaker_dataset = grain.ArrayRecordDataSource(ds)
     speaker_dataset = grain_lazy.SourceLazyMapDataset(speaker_dataset)
+    speaker_dataset = grain_lazy.RepeatLazyMapDataset(speaker_dataset,num_epochs=None)
+    speaker_dataset = speaker_dataset.seed(data_shuffle_seed)
+    speaker_dataset = grain_lazy.ShuffleLazyMapDataset(speaker_dataset)
     speaker_dataset = speaker_dataset.map(parse_transform)
     speaker_dataset = speaker_dataset.map(create_token_transform)
     speaker_dataset = grain_lazy.FirstFitPackLazyIterDataset(
@@ -119,6 +88,9 @@ def preprocessing_pipeline(
     speaker_dataset = speaker_dataset.map(combine_transform)
     all_ds.append(speaker_dataset)
   dataset = grain_lazy.SourceLazyMapDataset(dataset)
+  dataset = grain_lazy.RepeatLazyMapDataset(dataset,num_epochs=None)
+  dataset = speaker_dataset.seed(dataset)
+  dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
   dataset = dataset.map(parse_transform)
   dataset = dataset.map(create_token_transform)
   dataset = grain_lazy.FirstFitPackLazyIterDataset(
@@ -130,17 +102,12 @@ def preprocessing_pipeline(
   )
   all_ds.append(dataset)
   dataset = grain_lazy.MixedLazyIterDataset(all_ds)
-  #dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
-  #dataset = dataset.shuffle()
+  
+
   dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
   prefecth_options = grain_options.MultiprocessingOptions(num_workers=grain_worker_count,per_worker_buffer_size=128)
   dataset = dataset.prefetch(multiprocessing_options=prefecth_options)
-  # dataloader = grain.DataLoader(
-  #     data_source=dataset,
-  #     operations=operations,
-  #     sampler=index_sampler,
-  #     worker_count=grain_worker_count,
-  # )
+
   multihost_gen = multihost_dataloading.MultiHostDataLoadIterator(dataset, global_mesh)
 
   # Return multi-host jax.Array prep iterator
