@@ -133,7 +133,7 @@ def preprocessing_pipeline(
   #dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
   #dataset = dataset.shuffle()
   dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
-  prefecth_options = grain_options.MultiprocessingOptions(num_workers=8,per_worker_buffer_size=128)
+  prefecth_options = grain_options.MultiprocessingOptions(num_workers=grain_worker_count,per_worker_buffer_size=128)
   dataset = dataset.prefetch(multiprocessing_options=prefecth_options)
   # dataloader = grain.DataLoader(
   #     data_source=dataset,
