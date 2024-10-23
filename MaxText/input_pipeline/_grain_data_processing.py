@@ -75,7 +75,7 @@ def preprocessing_pipeline(
     speaker_dataset = grain_lazy.SourceLazyMapDataset(speaker_dataset).seed(data_shuffle_seed)
     speaker_dataset = grain_lazy.RepeatLazyMapDataset(speaker_dataset,num_epochs=None)
     #speaker_dataset = speaker_dataset.seed(data_shuffle_seed)
-    #speaker_dataset = grain_lazy.ShuffleLazyMapDataset(speaker_dataset)
+    speaker_dataset = grain_lazy.ShuffleLazyMapDataset(speaker_dataset)
     speaker_dataset = speaker_dataset.map(parse_transform)
     speaker_dataset = speaker_dataset.map(create_token_transform)
     speaker_dataset = grain_lazy.FirstFitPackLazyIterDataset(
@@ -90,7 +90,7 @@ def preprocessing_pipeline(
   dataset = grain_lazy.SourceLazyMapDataset(dataset).seed(data_shuffle_seed)
   dataset = grain_lazy.RepeatLazyMapDataset(dataset,num_epochs=None)
   #dataset = speaker_dataset.seed(dataset)
-  #dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
+  dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
   dataset = dataset.map(parse_transform)
   dataset = dataset.map(create_token_transform)
   dataset = grain_lazy.FirstFitPackLazyIterDataset(
