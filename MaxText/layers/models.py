@@ -192,33 +192,30 @@ class CodebookDecoder(nn.Module):
     else:
       raise ValueError(f"Incorrect decoder_block name {self.config.decoder_block=}")
 
-  # def scan_decoder_layers(self, cfg, decoder_layer, length, metdata_axis_name, mesh):
-  #   initializing = self.is_mutable_collection("params")
-  #   params_spec = cfg.param_scan_axis if initializing else ScanIn(cfg.param_scan_axis)
-  #   cache_spec = 0
-  #   scan_fn = nn.scan(
-  #     decoder_layer,
-  #     variable_axes={
-  #         "params": params_spec,
-  #         "cache": cache_spec,
-  #         "intermediates": 0,
-  #         "aqt": 0,
-  #         "_overwrite_with_gradient": 0,
-  #     },
-  #     split_rngs={
-  #         "params": True,
-  #         "dropout": cfg.enable_dropout,
-  #     },
-  #     in_axes=(
-  #         nn.broadcast,
-  #         nn.broadcast,
-  #         nn.broadcast,
-  #         nn.broadcast,
-  #     ),
-  #     length=length,
-  #     metadata_params={nn.PARTITION_NAME: metdata_axis_name},
-  #   )
-  #   return scan_fn(config=cfg, mesh=mesh, name="layers", quant=self.quant)
+  def scan_decoder_layers(self, cfg, decoder_layer, length, metdata_axis_name, mesh):
+    initializing = self.is_mutable_collection("params")
+    params_spec = cfg.param_scan_axis if initializing else ScanIn(cfg.param_scan_axis)
+    cache_spec = 0
+    scan_fn = nn.scan(
+      decoder_layer,
+      variable_axes={
+          "params": params_spec,
+          "cache": cache_spec,
+          "intermediates": 0,
+          "aqt": 0,
+          "_overwrite_with_gradient": 0,
+      },
+      split_rngs={
+          "params": True,
+          "dropout": cfg.enable_dropout,
+      },
+      in_axes=(
+          nn.broadcast,
+      ),
+      length=length,
+      metadata_params={nn.PARTITION_NAME: metdata_axis_name},
+    )
+    return scan_fn(config=cfg, mesh=mesh, name="layers", quant=self.quant)
 
   @nn.compact
   def __call__(
@@ -230,42 +227,40 @@ class CodebookDecoder(nn.Module):
     mesh = self.mesh
     y = decoder_hidden_states
     BlockLayer = self.get_decoder_layer()  
-    logits_res = []
-    # if cfg.scan_layers:
-    #   y, _ = self.scan_decoder_layers(cfg, RemattedBlockLayer, cfg.num_decoder_layers, "layers", mesh)(
-    #       y,
-    #       decoder_segment_ids,
-    #       decoder_positions,
-    #       deterministic,
-    #       model_mode,
-    #   )
-    # else:
-    for lyr in range(self.config.codebook_dim):
-      y = BlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
+    
+    if cfg.scan_layers:
+      y, y_stack = self.scan_decoder_layers(cfg, BlockLayer, self.config.codebook_dim, "layers", mesh)(
           y,
           deterministic,
       )
-      y = self.get_norm_layer()(
-          dtype=cfg.dtype,
-          weight_dtype=cfg.weight_dtype,
-          name=f"decoder_norm_{lyr}",
-          epsilon=cfg.normalization_layer_epsilon,
-          kernel_axes=("norm",),
-      )(y)
+      hidden_state_arr = y_stack.transpose(1,2,0,3)
+    else:
+      hidden_state_arr = []
+      for lyr in range(self.config.codebook_dim):
+        y = BlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
+            y,
+            deterministic,
+        )
+        y = self.get_norm_layer()(
+            dtype=cfg.dtype,
+            weight_dtype=cfg.weight_dtype,
+            name=f"decoder_norm_{lyr}",
+            epsilon=cfg.normalization_layer_epsilon,
+            kernel_axes=("norm",),
+        )(y)
+        hidden_state_arr.append(logits)
+      hidden_state_arr = jnp.stack(hidden_state_arr,axis=-2)
+    logits = linears.DenseGeneral(
+            self.config.codebook_size,
+            weight_dtype=cfg.weight_dtype,
+            dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
+            kernel_axes=("embed", "vocab"),
+            name=f"logits_dense",
+            matmul_precision=self.config.matmul_precision,
+        )(hidden_state_arr)
 
-      logits = linears.DenseGeneral(
-          self.config.codebook_size,
-          weight_dtype=cfg.weight_dtype,
-          dtype=jnp.float32 if cfg.logits_dot_in_fp32 else cfg.dtype,  # for logit training stability
-          kernel_axes=("embed", "vocab"),
-          name=f"logits_dense_{lyr}",
-          matmul_precision=self.config.matmul_precision,
-      )(y)
-      logits_res.append(logits)
-
-
-    logits_res = jnp.stack(logits_res,axis=-2)
-    return logits_res
+    
+    return logits
   
 class Decoder(nn.Module):
 

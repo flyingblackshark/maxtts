@@ -113,7 +113,7 @@ class FBSDecoderLayer(nn.Module):
           jnp.sum(layer_output == 0) / jnp.size(layer_output),
       )
 
-    # if cfg.scan_layers:
-    #   return layer_output, None
-    # else:
-    return layer_output
+    if cfg.scan_layers:
+        return layer_output, layer_output
+    else:
+        return layer_output
