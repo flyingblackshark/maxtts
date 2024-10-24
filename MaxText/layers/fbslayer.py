@@ -71,6 +71,8 @@ class FBSDecoderLayer(nn.Module):
   ):
     cfg = self.config
     mesh = self.mesh
+    
+    inputs = nn.with_logical_constraint(inputs, ("activation_batch", "activation_length", "activation_embed"))
 
     # Fully Connected
     hidden_states = models.RMSNorm(
