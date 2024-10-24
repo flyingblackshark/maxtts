@@ -241,7 +241,7 @@ class CodebookDecoder(nn.Module):
             y,
             deterministic,
         )
-        hidden_state_arr.append(logits)
+        hidden_state_arr.append(y)
       hidden_state_arr = jnp.stack(hidden_state_arr,axis=-2)
     hidden_state_arr = self.get_norm_layer()(
         dtype=cfg.dtype,
