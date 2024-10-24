@@ -228,16 +228,72 @@ class CodebookDecoder(nn.Module):
     mesh = self.mesh
     y = decoder_hidden_states
     BlockLayer = self.get_decoder_layer()  
-    
+    if cfg.remat_policy != "none":
+      if cfg.remat_policy == "minimal":
+        policy = jax.checkpoint_policies.checkpoint_dots_with_no_batch_dims
+      elif cfg.remat_policy == "save_dot_except_mlpwi":
+        policy = jax.checkpoint_policies.save_only_these_names(
+            "query_proj",
+            "value_proj",
+            "key_proj",
+            "qkv_proj",
+            "out_proj",
+            "mlpwo",
+        )
+      elif cfg.remat_policy == "save_dot_except_mlp":
+        policy = jax.checkpoint_policies.save_only_these_names(
+            "query_proj",
+            "value_proj",
+            "key_proj",
+            "qkv_proj",
+            "out_proj",
+        )
+      elif cfg.remat_policy == "save_qkv_proj":
+        policy = jax.checkpoint_policies.save_only_these_names(
+            "query_proj",
+            "value_proj",
+            "key_proj",
+            "qkv_proj",
+        )
+      elif cfg.remat_policy == "qkv_proj_offloaded":
+        policy = jax.checkpoint_policies.save_and_offload_only_these_names(
+            names_which_can_be_saved=[],
+            names_which_can_be_offloaded=["query_proj", "value_proj", "key_proj"],
+            offload_src="device",
+            offload_dst="pinned_host",
+        )
+      elif cfg.remat_policy == "minimal_offloaded":
+        policy = jax.checkpoint_policies.offload_dot_with_no_batch_dims(offload_src="device", offload_dst="pinned_host")
+      elif cfg.remat_policy == "minimal_flash":
+        policy = jax.checkpoint_policies.save_from_both_policies(
+            jax.checkpoint_policies.checkpoint_dots_with_no_batch_dims,
+            jax.checkpoint_policies.save_only_these_names(
+                "context",
+            ),
+        )
+      elif cfg.remat_policy == "save_out_proj":
+        policy = jax.checkpoint_policies.save_only_these_names(
+            "out_proj",
+        )
+      else:
+        assert cfg.remat_policy == "full", "Remat policy needs to be on list of remat policies"
+        policy = None
+
+    RemattedBlockLayer = nn.remat(  # pylint: disable=invalid-name
+        BlockLayer,
+        prevent_cse=not cfg.scan_layers,
+        policy=policy,
+        static_argnums=(-1, -2, -3, -4, -5),
+    )
     if cfg.scan_layers:
-      y, hidden_state_arr = self.scan_decoder_layers(cfg, BlockLayer, self.config.codebook_dim, "layers", mesh)(
+      y, hidden_state_arr = self.scan_decoder_layers(cfg, RemattedBlockLayer, self.config.codebook_dim, "layers", mesh)(
           y,
           deterministic,
       )
     else:
       hidden_state_arr = []
       for lyr in range(self.config.codebook_dim):
-        y = BlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
+        y = RemattedBlockLayer(config=cfg, mesh=mesh, name=f"layers_{lyr}", quant=self.quant)(
             y,
             deterministic,
         )
