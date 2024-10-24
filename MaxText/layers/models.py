@@ -241,15 +241,15 @@ class CodebookDecoder(nn.Module):
             y,
             deterministic,
         )
-        y = self.get_norm_layer()(
-            dtype=cfg.dtype,
-            weight_dtype=cfg.weight_dtype,
-            name=f"decoder_norm_{lyr}",
-            epsilon=cfg.normalization_layer_epsilon,
-            kernel_axes=("norm",),
-        )(y)
         hidden_state_arr.append(logits)
       hidden_state_arr = jnp.stack(hidden_state_arr,axis=-2)
+    hidden_state_arr = self.get_norm_layer()(
+        dtype=cfg.dtype,
+        weight_dtype=cfg.weight_dtype,
+        name=f"decoder_norm",
+        epsilon=cfg.normalization_layer_epsilon,
+        kernel_axes=("norm",),
+    )(hidden_state_arr)
     logits = linears.DenseGeneral(
             self.config.codebook_size,
             weight_dtype=cfg.weight_dtype,
