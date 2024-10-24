@@ -250,6 +250,7 @@ class CodebookDecoder(nn.Module):
         epsilon=cfg.normalization_layer_epsilon,
         kernel_axes=("norm",),
     )(hidden_state_arr)
+    hidden_state_arr = nn.Dropout(rate=cfg.dropout_rate, broadcast_dims=(-2,))(hidden_state_arr, deterministic=deterministic)
     logits = linears.DenseGeneral(
             self.config.codebook_size,
             weight_dtype=cfg.weight_dtype,
