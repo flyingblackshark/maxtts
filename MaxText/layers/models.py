@@ -258,7 +258,8 @@ class CodebookDecoder(nn.Module):
             name=f"logits_dense",
             matmul_precision=self.config.matmul_precision,
         )(hidden_state_arr)
-
+    logits = nn.with_logical_constraint(logits, ("activation_embed_and_logits_batch", "activation_length", "activation_vocab"))
+    logits = logits.astype(jnp.float32)
     
     return logits
   
