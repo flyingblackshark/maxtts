@@ -31,18 +31,11 @@ def get_datasets(data_file_pattern):
   """Load dataset from array_record files for using with grain"""
   data_files = glob.glob(data_file_pattern)
   dataset = grain.ArrayRecordDataSource(data_files)
-  #test = next(iter(dataset))
   return dataset
-
-# def get_datasets(data_file_pattern):
-#   """Load dataset from array_record files for using with grain"""
-#   data_files = glob.glob(data_file_pattern)
-#   dataset = grain.ArrayRecordDataSource(data_files)
-#   return dataset
-
 
 def preprocessing_pipeline(
     dataset,
+    speaker_pattern,
     tokenizer_path,
     global_batch_size: int,
     global_mesh,
@@ -65,7 +58,7 @@ def preprocessing_pipeline(
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."
 
   all_ds = []
-  speaker_files = glob.glob("/bucket/speaker_dataset/*.arrayrecord")
+  speaker_files = glob.glob(speaker_pattern)
   parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
   combine_transform = _input_pipeline_utils.LogicalCombineSegment()
   create_token_transform = _input_pipeline_utils.CreateToken(codebook_dim=9)
@@ -120,6 +113,7 @@ def make_grain_iterator(
   train_ds = get_datasets(config.grain_train_files)
   train_iter = preprocessing_pipeline(
     dataset=train_ds,
+    speaker_pattern=config.grain_train_speaker_files,
     tokenizer_path=config.tokenizer_path,
     global_batch_size=config.global_batch_size_to_load,
     global_mesh=global_mesh,
@@ -139,6 +133,7 @@ def make_grain_iterator(
     eval_ds = get_datasets(config.grain_eval_files)
     eval_iter = preprocessing_pipeline(
       dataset=eval_ds,
+      speaker_pattern=config.grain_train_speaker_files,
       tokenizer_path=config.tokenizer_path,
       global_batch_size=config.global_batch_size_to_load,
       global_mesh=global_mesh,

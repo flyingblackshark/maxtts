@@ -286,6 +286,7 @@ hf_eval_files: ''
 hf_access_token: ''
 # for Grain input pipeline (dataset_type=grain)
 grain_train_files: ''
+grain_train_speaker_files: ''
 grain_eval_files: ''
 grain_worker_count: 1
 
