@@ -212,6 +212,7 @@ class CodebookDecoder(nn.Module):
       in_axes=(
           nn.broadcast,
       ),
+      out_axes=2,
       length=length,
       metadata_params={nn.PARTITION_NAME: metdata_axis_name},
     )
@@ -229,11 +230,10 @@ class CodebookDecoder(nn.Module):
     BlockLayer = self.get_decoder_layer()  
     
     if cfg.scan_layers:
-      y, y_stack = self.scan_decoder_layers(cfg, BlockLayer, self.config.codebook_dim, "layers", mesh)(
+      y, hidden_state_arr = self.scan_decoder_layers(cfg, BlockLayer, self.config.codebook_dim, "layers", mesh)(
           y,
           deterministic,
       )
-      hidden_state_arr = y_stack.transpose(1,2,0,3)
     else:
       hidden_state_arr = []
       for lyr in range(self.config.codebook_dim):
