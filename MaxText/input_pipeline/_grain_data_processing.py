@@ -57,7 +57,7 @@ def preprocessing_pipeline(
   """Use grain to pre-process the dataset and return iterators"""
   assert global_batch_size % global_mesh.size == 0, "Batch size should be divisible number of global devices."
 
-  all_ds = []
+  speaker_ds = []
   speaker_files = glob.glob(speaker_pattern)
   parse_transform = _input_pipeline_utils.ParseTextAndSemanticFeatures()
   combine_transform = _input_pipeline_utils.LogicalCombineSegment()
@@ -78,7 +78,7 @@ def preprocessing_pipeline(
       meta_features=("input_semantics_mask","targets_semantics_mask")
     )
     speaker_dataset = speaker_dataset.map(combine_transform)
-    all_ds.append(speaker_dataset)
+    speaker_ds.append(speaker_dataset)
   dataset = grain_lazy.SourceLazyMapDataset(dataset).seed(data_shuffle_seed)
   dataset = grain_lazy.RepeatLazyMapDataset(dataset,num_epochs=None)
   dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
@@ -91,8 +91,8 @@ def preprocessing_pipeline(
       shuffle_bins=True,
       meta_features=("input_semantics_mask","targets_semantics_mask")
   )
-  all_ds.append(dataset)
-  dataset = grain_lazy.MixedLazyIterDataset(all_ds)
+  speaker_ds = grain_lazy.MixedLazyIterDataset(speaker_ds)
+  dataset = grain_lazy.MixedLazyIterDataset([dataset,speaker_ds],proportions=[2,1])
   
 
   dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
