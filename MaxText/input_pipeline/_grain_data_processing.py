@@ -79,7 +79,6 @@ def preprocessing_pipeline(
     )
     speaker_dataset = speaker_dataset.map(combine_transform)
     all_ds.append(speaker_dataset)
-  main_weight = len(speaker_files)
   dataset = grain_lazy.SourceLazyMapDataset(dataset).seed(data_shuffle_seed)
   dataset = grain_lazy.RepeatLazyMapDataset(dataset,num_epochs=None)
   dataset = grain_lazy.ShuffleLazyMapDataset(dataset)
@@ -94,7 +93,7 @@ def preprocessing_pipeline(
   )
   #speaker_ds = grain_lazy.MixedLazyIterDataset(speaker_ds)
   all_ds.append(dataset)
-  dataset = grain_lazy.MixedLazyIterDataset(all_ds,proportions=[1]*main_weight+[main_weight])
+  dataset = grain_lazy.MixedLazyIterDataset(all_ds)
   
 
   dataset = dataset.batch(batch_size=global_batch_size // jax.process_count(),drop_remainder=drop_remainder)
