@@ -45,6 +45,15 @@ checkpoint_period: 10_000
 enable_single_replica_ckpt_restoring: False
 
 force_unroll: False # during generate_param_only_checkpoint should we unroll the loop?
+
+# checkpointing using orbax has two important parameters: array driver
+# and its underlying storage - the kvstore (preferably ocdbt)
+# orbax supports setting a target file size, chunking a single 
+# large arrays into small physical files (<2GB) can speed up distributed and over 
+# the network loading enormously
+checkpoint_storage_target_data_file_size_bytes: 2147483648
+checkpoint_storage_use_ocdbt: True
+checkpoint_storage_use_zarr3: True
 ############################### END CHECKPOINTING ##################################
 
 
@@ -285,8 +294,8 @@ hf_eval_split: ''
 hf_eval_files: ''
 hf_access_token: ''
 # for Grain input pipeline (dataset_type=grain)
-grain_train_files: ''
-grain_train_speaker_files: ''
+grain_train_files: '/bucket/new_dataset/*/*.arrayrecord'
+grain_train_speaker_files: '/bucket/speaker_dataset/*.arrayrecord'
 grain_eval_files: ''
 grain_worker_count: 1
 
