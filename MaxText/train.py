@@ -67,7 +67,7 @@ from ml_goodput_measurement import monitoring
 
 Transformer = models.Transformer
 EPS = 1e-8
-_CHUNK_BYTE_SIZE = 2 * 1024 **3
+_DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2 * 1024**3
 
 
 def validate_train_config(config):
@@ -188,8 +188,7 @@ def save_checkpoint(
   """Wrapper for saving checkpoint."""
   if config and config.enable_checkpointing:
     if (step % config.checkpoint_period == 0) or (
-        config.enable_emergency_checkpoint
-        and step % config.local_checkpoint_period == 0
+        config.enable_emergency_checkpoint and step % config.local_checkpoint_period == 0
     ):
       blocking_until_ready_start = time.time()
       max_logging.log(f"Waiting for step {step} to finish before checkpoint...")
@@ -202,34 +201,35 @@ def save_checkpoint(
       )
 
   # specify chunk_byte_size to force orbax to control maximum file size in checkpoint
-  save_args = jax.tree.map(
-      lambda _: orbax.checkpoint.SaveArgs(chunk_byte_size=_CHUNK_BYTE_SIZE), state
-  )
+  chunk_byte_size = _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+  if config:
+    chunk_byte_size = config.checkpoint_storage_target_data_file_size_bytes
+  save_args = jax.tree.map(lambda _: orbax.checkpoint.SaveArgs(chunk_byte_size=chunk_byte_size), state)
 
   if isinstance(checkpoint_manager, emergency_checkpoint_manager.CheckpointManager):
     return checkpoint_manager.save(
-      step, args=orbax.checkpoint.args.PyTreeSave(
-          item=state, save_args=save_args, ocdbt_target_data_file_size=_CHUNK_BYTE_SIZE
-      )
-  )
+        step,
+        args=orbax.checkpoint.args.PyTreeSave(item=state, save_args=save_args, ocdbt_target_data_file_size=chunk_byte_size),
+    )
 
   if dataset_type == "grain":
     return checkpoint_manager.save(
         step,
         args=orbax.checkpoint.args.Composite(
             items=orbax.checkpoint.args.PyTreeSave(
-                item=state, save_args=save_args, ocdbt_target_data_file_size=_CHUNK_BYTE_SIZE
+                item=state, save_args=save_args, ocdbt_target_data_file_size=chunk_byte_size
             ),
             iter=grain.PyGrainCheckpointSave(data_iterator.local_iterator),
         ),
     )
   else:
     return checkpoint_manager.save(
-        step, args=orbax.checkpoint.args.Composite(
+        step,
+        args=orbax.checkpoint.args.Composite(
             items=orbax.checkpoint.args.PyTreeSave(
-                item=state, save_args=save_args, ocdbt_target_data_file_size=_CHUNK_BYTE_SIZE
+                item=state, save_args=save_args, ocdbt_target_data_file_size=chunk_byte_size
             )
-        )
+        ),
     )
 
 
@@ -491,21 +491,22 @@ def setup_mesh_and_model(config):
   tx = optimizers.get_optimizer(config, learning_rate_schedule)
   logger = checkpointing.setup_checkpoint_logger(config)
   if config.enable_emergency_checkpoint:
-    abstract_state, _, _ = max_utils.get_abstract_state(
-      model, tx, config, init_rng, mesh, is_training=True
-    )
-    checkpoint_manager = (
-      checkpointing.create_orbax_emergency_checkpoint_manager(
-          config.local_checkpoint_directory,
-          config.checkpoint_dir,
-          mesh,
-          abstract_state,
-          config.local_checkpoint_period,
-          config.checkpoint_period,
-          logger,
-      )
+    abstract_state, _, _ = max_utils.get_abstract_state(model, tx, config, init_rng, mesh, is_training=True)
+    checkpoint_manager = checkpointing.create_orbax_emergency_checkpoint_manager(
+        config.local_checkpoint_directory,
+        config.checkpoint_dir,
+        mesh,
+        abstract_state,
+        config.local_checkpoint_period,
+        config.checkpoint_period,
+        logger,
     )
   else:
+    # TODO(b/368121306): Remove this once zarr3 support is plumbed on the backend
+    use_ocdbt = config.checkpoint_storage_use_ocdbt
+    use_zarr3 = config.checkpoint_storage_use_zarr3
+    if config.enable_single_controller:
+      use_ocdbt, use_zarr3 = False, False
     checkpoint_manager = checkpointing.create_orbax_checkpoint_manager(
         config.checkpoint_dir,
         config.enable_checkpointing,
@@ -513,6 +514,8 @@ def setup_mesh_and_model(config):
         config.checkpoint_period,
         config.dataset_type,
         logger,
+        use_ocdbt,
+        use_zarr3,
     )
 
   return init_rng, writer, checkpoint_manager, mesh, model, learning_rate_schedule, tx
