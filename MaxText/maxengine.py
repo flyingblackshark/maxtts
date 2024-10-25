@@ -118,7 +118,7 @@ class MaxEngine(engine_api.Engine):
     def model_apply(_p, _rng):
       return self.model.apply(
           _p | {"aqt": {}},
-          jnp.ones((1, self.config.max_prefill_predict_length), dtype=jnp.int32),
+          jnp.ones((1, self.config.max_prefill_predict_length,self.config.codebook_dim+1), dtype=jnp.int32),
           jnp.ones((1, self.config.max_prefill_predict_length), dtype=jnp.int32),
           decoder_segment_ids=jnp.zeros((1, self.config.max_prefill_predict_length), dtype=jnp.int32),
           enable_dropout=False,
