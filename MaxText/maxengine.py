@@ -241,8 +241,17 @@ class MaxEngine(engine_api.Engine):
     }, result
 
   @functools.partial(jax.jit, static_argnums=(0,), donate_argnums=(2,))
-  def generate(self, params: Params, decode_state: DecodeState) -> Tuple[DecodeState, engine_api.ResultTokens]:
+  def generate(
+      self,
+      params: Params,
+      decode_state: DecodeState,
+      sampler: Optional[Callable[[Any], Any]] = None,  # pylint: disable=unused-argument
+      rng: Optional[jax.random.PRNGKey] = None,
+  ) -> Tuple[DecodeState, engine_api.ResultTokens]:
     """Run one generate step"""
+    if rng is None:
+      rng = jax.random.PRNGKey(0)
+      
     previous_token = decode_state["tokens"]
     # run one step generation
     with self._mesh, nn_partitioning.axis_rules(self.config.logical_axis_rules):
