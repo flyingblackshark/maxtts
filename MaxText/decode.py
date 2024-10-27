@@ -99,27 +99,27 @@ def main(config):
     engine = maxengine.MaxEngine(config)
     params = engine.load_params()
     text = config.prompt
-    @jax.jit
-    def encode_to_codes(x: jnp.ndarray):
-        codes, scale = model.apply(
-            variables,
-            x,
-            method="encode",
-        )
-        return codes, scale
+    # @jax.jit
+    # def encode_to_codes(x: jnp.ndarray):
+    #     codes, scale = model.apply(
+    #         variables,
+    #         x,
+    #         method="encode",
+    #     )
+    #     return codes, scale
     #metadata = engine.get_tokenizer()
-    ref_audio, sr = librosa.load("/root/maxtext/speech.wav", sr=44100,mono=True)
-    prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
-    prompt_token = prompt_token.squeeze(0)
-    prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
+    #ref_audio, sr = librosa.load("/root/maxtext/speech.wav", sr=44100,mono=True)
+    #prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
+    #prompt_token = prompt_token.squeeze(0)
+    #prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
     tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
-    encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
+    #encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
     im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
     tokens,true_length = encode_tokens(tokenizer_model,text)
-    tokens = jnp.concatenate((encoded_prompts,tokens),axis=1)
+    #tokens = jnp.concatenate((encoded_prompts,tokens),axis=1)
     tokens = tokens.transpose(1,0)
     padding = config.max_prefill_predict_length - tokens.shape[0]
-    true_length = true_length + true_length_prompt
+    #true_length = true_length + true_length_prompt
     padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
     #tokenizer_model = engine.build_tokenizer(metadata)
     # tokens, true_length = tokenizer_model.encode(
