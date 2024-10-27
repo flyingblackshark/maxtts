@@ -197,8 +197,8 @@ if __name__ == "__main__":
             )
             return recons
         audio_output = decode_from_codes(jnp.expand_dims(results.transpose(1,0),0),None).squeeze((0,1) )
-        sf.write("test.wav",audio_output,samplerate=44100)
-        return "test.wav"
+        #sf.write("test.wav",audio_output,samplerate=44100)
+        return audio_output,44100
     iface = gr.Interface(
         fn=main,  # 处理函数
         inputs="text",      # 输入类型
