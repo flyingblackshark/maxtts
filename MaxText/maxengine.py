@@ -198,7 +198,7 @@ class MaxEngine(engine_api.Engine):
     first_generated_token = inference_utils.sampling(
         selected_logits,
         self.rng,
-        self.config.decode_sampling_strategy,
+        "nucleus",
         topk=0.1,
         nucleus_topp=0.1,
         temperature=0.1,
@@ -208,9 +208,9 @@ class MaxEngine(engine_api.Engine):
       codebook_generated_token = inference_utils.sampling(
         selected_codebook_logits[:,:,i],
         self.rng,
-        self.config.decode_sampling_strategy,
-        topk=self.config.decode_sampling_top_k,
-        nucleus_topp=self.config.decode_sampling_nucleus_p,
+        "nucleus",
+        topk=0.7,
+        nucleus_topp=0.7,
         temperature=self.config.decode_sampling_temperature,
       )
       codebook_generated_tokens.append(codebook_generated_token)
