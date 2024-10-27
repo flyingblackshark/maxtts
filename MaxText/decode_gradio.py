@@ -128,30 +128,35 @@ if __name__ == "__main__":
         ref_audio_2, sr = librosa.load("/root/maxtext/speech2.wav", sr=44100,mono=True)
         ref_audio_3, sr = librosa.load("/root/maxtext/speech3.wav", sr=44100,mono=True)
         ref_audio_4, sr = librosa.load("/root/maxtext/speech4.wav", sr=44100,mono=True)
+        ref_audio_5, sr = librosa.load("/root/maxtext/speech4.wav", sr=44100,mono=True)
         prompt_token,_ = encode_to_codes(jnp.expand_dims(ref_audio,(0,1)))
         prompt_token_2,_ = encode_to_codes(jnp.expand_dims(ref_audio_2,(0,1)))
         prompt_token_3,_ = encode_to_codes(jnp.expand_dims(ref_audio_3,(0,1)))
         prompt_token_4,_ = encode_to_codes(jnp.expand_dims(ref_audio_4,(0,1)))
+        prompt_token_5,_ = encode_to_codes(jnp.expand_dims(ref_audio_5,(0,1)))
         prompt_token = prompt_token.squeeze(0)
         prompt_token_2 = prompt_token_2.squeeze(0)
         prompt_token_3 = prompt_token_3.squeeze(0)
         prompt_token_4 = prompt_token_4.squeeze(0)
+        prompt_token_5 = prompt_token_5.squeeze(0)
         #text = "I love singing and dancing."
         prompt_text = "My mind has always mostly been in my own world. And I've kind of learned how to step a bit out of my own head and connect with everyone and it's been good."
         prompt_text_2 = "It opens up with like a French-ish song that ends in French. So it was just kind of a coincidence."
         prompt_text_3 = "I have to do.I'm very good at focusing on fun things or things I deeply care about."
         prompt_text_4 = "But it's nice at least when you're far away from home. It felt more like."
+        prompt_text_5 = "Because it is over when it's over and I love the show. But I don't need the attention from 10 000 people all the time. It's wonderful there in the moment and then it's just as wonderful."
         tokenizer_model = AutoTokenizer.from_pretrained("fishaudio/fish-speech-1")
         encoded_prompts,true_length_prompt = encode_tokens(tokenizer_model,prompt_text,prompt_token)
         encoded_prompts_2,true_length_prompt_2 = encode_tokens(tokenizer_model,prompt_text_2,prompt_token_2)
         encoded_prompts_3,true_length_prompt_3 = encode_tokens(tokenizer_model,prompt_text_3,prompt_token_3)
         encoded_prompts_4,true_length_prompt_4 = encode_tokens(tokenizer_model,prompt_text_4,prompt_token_4)
+        encoded_prompts_5,true_length_prompt_5 = encode_tokens(tokenizer_model,prompt_text_5,prompt_token_5)
         im_end_id = tokenizer_model.convert_tokens_to_ids("<|im_end|>")
         tokens,true_length = encode_tokens(tokenizer_model,text)
-        tokens = jnp.concatenate((encoded_prompts,encoded_prompts_2,encoded_prompts_3,encoded_prompts_4,tokens),axis=1)
+        tokens = jnp.concatenate((encoded_prompts,encoded_prompts_2,encoded_prompts_3,encoded_prompts_4,encoded_prompts_5,tokens),axis=1)
         tokens = tokens.transpose(1,0)
         padding = config.max_prefill_predict_length - tokens.shape[0]
-        true_length = true_length + true_length_prompt + true_length_prompt_2 + true_length_prompt_3 + true_length_prompt_4
+        true_length = true_length + true_length_prompt + true_length_prompt_2 + true_length_prompt_3 + true_length_prompt_4 + true_length_prompt_5
         padded_tokens = jnp.pad(tokens, ((0, padding),(0,0)))
         #tokenizer_model = engine.build_tokenizer(metadata)
         # tokens, true_length = tokenizer_model.encode(
