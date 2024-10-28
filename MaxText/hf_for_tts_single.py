@@ -16,18 +16,23 @@ from array_record.python.array_record_module import ArrayRecordWriter
 DEVICE = "tpu"
 MAX_LENGTH_AUDIO = 30 * 44100
 MAX_LENGTH_TEXT = 10000
-GLOBAL_BATCH_SIZE = 64
-SOURCE_SAMPLERATE = 44100
-DATASET_NAME = "HIFI_TTS_"
+GLOBAL_BATCH_SIZE = 32
+SOURCE_SAMPLERATE = 24000
+DATASET_NAME = "LIBRI_TTS"
 class HFParseAudioFeatures(grain.MapTransform):
   """Normalize feature keys for HuggingFace input"""
   def map(self, features):
-    audio_44k = librosa.resample(features["audio"]["array"], orig_sr=SOURCE_SAMPLERATE, target_sr=44100)
+    audio_44k = librosa.resample(features["audio"]["array"], orig_sr=features["audio"]["sampling_rate"], target_sr=44100)
     return {
         "audio": np.asarray(audio_44k, dtype=np.float32),
         "text": np.asarray(features["text"], dtype=np.int32),
-        "speaker":int(features["speaker"]),
+        "speaker":int(features["speaker_id"]),
     }   
+  
+class FilterAbnormal(grain.FilterTransform):
+  """Filter Abnormal Value"""
+  def filter(self, features):
+    return features["audio"].shape[0] < MAX_LENGTH_AUDIO
 
 class PadToMaxLength(grain.MapTransform):
 
@@ -51,9 +56,9 @@ if __name__ == "__main__":
         device_mesh = mesh_utils.create_device_mesh((1, 1))
     mesh = Mesh(device_mesh, axis_names=("data", "model")) 
     dataset = datasets.load_dataset(
-        "MikhailT/hifi-tts",
+        "parler-tts/libritts_r_filtered",
         name="clean",
-        split="train",
+        split="train.clean.360",
         streaming=True,
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -84,7 +89,7 @@ if __name__ == "__main__":
             method="encode",
         )
         return codes, scale
-    dataset = dataset.select_columns(["input_ids","audio","speaker"]).rename_column("input_ids", "text")
+    dataset = dataset.select_columns(["input_ids","audio","speaker_id"]).rename_column("input_ids", "text")
     dataset = _input_pipeline_utils.HFDataSource(dataset,
                                                 0,
                                                 1,
@@ -94,6 +99,7 @@ if __name__ == "__main__":
                                                 "text")
     operations = []
     operations.append(HFParseAudioFeatures())
+    operations.append(FilterAbnormal())
     operations.append(PadToMaxLength())
     operations.append(grain.Batch(batch_size=GLOBAL_BATCH_SIZE, drop_remainder=True))
     dummy_index_sampler = grain.IndexSampler(
@@ -127,7 +133,7 @@ if __name__ == "__main__":
             num = i//10240
             if writer is not None:
                 writer.close() 
-            writer = ArrayRecordWriter(f"/bucket/new_dataset/hifi_tts/hifi_tts_train_part_{num}.arrayrecord", 'group_size:1')
+            writer = ArrayRecordWriter(f"/bucket/new_dataset/{DATASET_NAME.lower()}/{DATASET_NAME.lower()}_train_part_{num}.arrayrecord", 'group_size:1')
             
         semantics, _ = encode_to_codes(jnp.expand_dims(item["audio"],1))
         semantics = np.asarray(semantics)
@@ -187,7 +193,7 @@ if __name__ == "__main__":
                                bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(semantics_slice).numpy()])
                             ),
                             'speaker':tf.train.Feature(
-                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+str(item["speaker"])).encode('utf-8')])
+                               bytes_list=tf.train.BytesList(value=[(DATASET_NAME+"_"+str(item["speaker"])).encode('utf-8')])
                             )
                         }
                     )
